@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: royaltracker-bot
+  labels: {{- include "royaltracker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.bot.replicas }}
+  # Recreate, not RollingUpdate: Telegram permits only one getUpdates poller
+  # per bot token. Two pods would 409 each other.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "royaltracker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: bot
+  template:
+    metadata:
+      labels:
+        {{- include "royaltracker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bot
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: bot
+          image: "{{ .Values.image.bot.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.bot.port }}
+          env: {{- include "royaltracker.env" . | nindent 12 }}
+          resources: {{- toYaml .Values.bot.resources | nindent 12 }}
+          # readOnlyRootFilesystem requires writable /tmp via emptyDir.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

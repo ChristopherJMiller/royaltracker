@@ -1,0 +1,19 @@
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: royaltracker-tls
+  labels: {{- include "royaltracker.labels" . | nindent 4 }}
+spec:
+  secretName: royaltracker-tls
+  issuerRef:
+    kind: {{ .Values.ingress.tls.issuerKind }}
+    name: {{ .Values.ingress.tls.issuerName }}
+  commonName: {{ .Values.ingress.host }}
+  dnsNames:
+    - {{ .Values.ingress.host }}
+  privateKey:
+    rotationPolicy: Always
+    algorithm: ECDSA
+    size: 384
+{{- end }}

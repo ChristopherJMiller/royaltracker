@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: royaltracker-scraper
+  labels: {{- include "royaltracker.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.scraper.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.scraper.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.scraper.failedJobsHistoryLimit }}
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.scraper.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "royaltracker.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: scraper
+        spec:
+          restartPolicy: OnFailure
+          securityContext: {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: scraper
+              image: "{{ .Values.image.scraper.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext: {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              env: {{- include "royaltracker.env" . | nindent 16 }}
+              resources: {{- toYaml .Values.scraper.resources | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}

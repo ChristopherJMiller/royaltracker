@@ -1,0 +1,79 @@
+# Default values for the royaltracker chart.
+# Override with `helm install` --values or Argo CD `valuesObject`.
+
+image:
+  # GHCR-published by .github/workflows/image.yml on every push to main.
+  # Override `bot.repository` / `scraper.repository` independently if you've
+  # forked the images.
+  bot:
+    repository: ghcr.io/christopherjmiller/royaltracker-bot
+  scraper:
+    repository: ghcr.io/christopherjmiller/royaltracker-scraper
+  # Pin to a SHA in prod; `latest` is convenient for dev.
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Secret holding non-credential config (bot_token, encryption_key_b64, rcg_basic_auth_b64).
+# Create it out-of-band — this chart doesn't manage secret material.
+configSecret:
+  name: royaltracker-config
+
+# Database connection string. Pulled from a Secret so the chart never sees raw creds.
+# The Secret must expose key `database_url`.
+database:
+  secretName: royaltracker-db
+  secretKey: database_url
+
+bot:
+  replicas: 1                     # Telegram allows only one getUpdates poller per token
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits:   { memory: 256Mi }
+  port: 8080
+
+scraper:
+  # Cron expression in UTC. Daily at 07:17 + ±10min in-binary jitter.
+  schedule: "17 7 * * *"
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits:   { memory: 256Mi }
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 2
+
+ingress:
+  enabled: true
+  className: nginx
+  host: royaltracker.example.com
+  externalDnsTarget: ""           # set to your zone apex if using external-dns
+  tls:
+    enabled: true
+    issuerKind: ClusterIssuer
+    issuerName: letsencrypt-prod
+
+# Public HTTPS URL the bot advertises to Telegram for the Mini App.
+# Usually matches ingress.host with https:// prefix.
+publicUrl: ""                     # required; e.g. "https://royaltracker.example.com"
+
+# Log level. `info` is plenty; `debug` is verbose.
+logLevel: info
+
+# Optional admin chat for system messages (startup, errors). 0 disables.
+adminChatId: 0
+
+# Scraper jitter window (minutes); 0 = fire immediately, useful for one-off runs.
+jitterMinutes: 10
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

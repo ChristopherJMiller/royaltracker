@@ -1,0 +1,9 @@
+apiVersion: v2
+name: royaltracker
+description: Cruise Planner price-drop bot (Telegram Mini App + daily scraper)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/ChristopherJMiller/royaltracker
+sources:
+  - https://github.com/ChristopherJMiller/royaltracker

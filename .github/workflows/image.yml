@@ -1,0 +1,60 @@
+name: image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'bins/**'
+      - 'migrations/**'
+      - 'Cargo.*'
+      - 'flake.*'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build:
+    name: build + push ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [royaltracker-bot, royaltracker-scraper]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build image
+        run: nix build .#${{ matrix.target }}-image --print-build-logs
+
+      - name: load + retag + push
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.target }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="${IMAGE,,}"  # GHCR requires lowercase
+          docker load < result
+          docker tag ${{ matrix.target }}:latest "$IMAGE:$SHA"
+          docker tag ${{ matrix.target }}:latest "$IMAGE:latest"
+          docker push "$IMAGE:$SHA"
+          docker push "$IMAGE:latest"
+          echo "::notice::pushed $IMAGE:$SHA"
