@@ -1,0 +1,31 @@
+[package]
+name = "royaltracker-scraper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["postgres"]
+sqlite   = ["royaltracker-storage/sqlite"]
+postgres = ["royaltracker-storage/postgres"]
+
+[[bin]]
+name = "royaltracker-scraper"
+path = "src/main.rs"
+
+[dependencies]
+royaltracker-api      = { workspace = true }
+royaltracker-config   = { workspace = true }
+royaltracker-core     = { workspace = true }
+royaltracker-crypto   = { workspace = true }
+royaltracker-storage  = { workspace = true, default-features = false }
+royaltracker-telegram = { workspace = true }
+royaltracker-types    = { workspace = true }
+
+tokio              = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow             = { workspace = true }
+chrono             = { workspace = true }

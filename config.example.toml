@@ -1,5 +1,5 @@
-# Copy to config.toml or set CRUISE_* env vars.
-# Env vars override file values; nested keys use double-underscore: CRUISE_TELEGRAM__BOT_TOKEN.
+# Copy to config.toml or set ROYALTRACKER_* env vars.
+# Env vars override file values; nested keys use double-underscore: ROYALTRACKER_TELEGRAM__BOT_TOKEN.
 #
 # RCG user credentials are NOT stored here anymore — each user registers via the
 # Telegram bot's /register flow and their (encrypted) credentials are persisted in
@@ -13,7 +13,7 @@ jitter_minutes     = 10
 rcg_basic_auth_b64 = "ZzlTMDIzdDc0NDczWlVrOTA5Rk42OEYwYjRONjdQU09oOTJvMDR2TDBCUjY1MzdwSTJ5Mmg5NE02QmJVN0Q2SjpXNjY4NDZrUFF2MTc1MDk3NW9vZEg1TTh6QzZUYTdtMzBrSDJRNzhsMldtVTUwRkNncXBQMTN3NzczNzdrN0lC"
 
 # Generate ONCE with:  cargo run -q --example gen-key  (or in a one-off:
-#   nix develop -c cargo run -q -p cruise-crypto --example gen-key)
+#   nix develop -c cargo run -q -p royaltracker-crypto --example gen-key)
 # Anyone with this key can decrypt every stored password — back it up out of band.
 encryption_key_b64 = "REPLACE_ME_32_BYTES_BASE64"
 

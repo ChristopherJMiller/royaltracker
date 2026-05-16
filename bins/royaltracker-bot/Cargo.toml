@@ -1,0 +1,36 @@
+[package]
+name = "royaltracker-bot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["postgres"]
+sqlite   = ["royaltracker-storage/sqlite",   "royaltracker-web/sqlite"]
+postgres = ["royaltracker-storage/postgres", "royaltracker-web/postgres"]
+
+[[bin]]
+name = "royaltracker-bot"
+path = "src/main.rs"
+
+[dependencies]
+royaltracker-api      = { workspace = true }
+royaltracker-config   = { workspace = true }
+royaltracker-crypto   = { workspace = true }
+royaltracker-storage  = { workspace = true, default-features = false }
+royaltracker-telegram = { workspace = true }
+royaltracker-types    = { workspace = true }
+royaltracker-web      = { workspace = true, default-features = false }
+
+teloxide           = { workspace = true }
+tokio              = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net"] }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow             = { workspace = true }
+chrono             = { workspace = true }
+serde              = { workspace = true }
+async-trait        = { workspace = true }
+axum               = { workspace = true }
+url                = { workspace = true }

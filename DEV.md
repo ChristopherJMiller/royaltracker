@@ -5,7 +5,7 @@ Two terminals:
 ## Terminal 1 — the bot + Mini App HTTP server
 
 ```sh
-nix develop -c cargo run -q -p cruise-bot --no-default-features --features sqlite
+nix develop -c cargo run -q -p royaltracker-bot --no-default-features --features sqlite
 ```
 
 Listens on `0.0.0.0:8080` (configured in `[web].bind_addr`).

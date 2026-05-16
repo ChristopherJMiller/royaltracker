@@ -2,30 +2,30 @@
 
 Personal Telegram bot that watches Cruise Planner add-on prices on Royal Caribbean and Celebrity for your own bookings and pings you when they drop.
 
-Single Rust workspace, two binaries (`cruise-bot` long-poll Deployment + `cruise-scraper` CronJob), SQLite for dev / Postgres for prod, packaged via a Nix flake.
+Single Rust workspace, two binaries (`royaltracker-bot` long-poll Deployment + `royaltracker-scraper` CronJob), SQLite for dev / Postgres for prod, packaged via a Nix flake.
 
 ## Quick start
 
 ```sh
 nix develop                                          # rust toolchain + sqlx-cli + sops + kubectl
 cp config.example.toml config.toml                   # fill in secrets
-cargo check --no-default-features --features sqlite -p cruise-scraper
-cargo run  --no-default-features --features sqlite -p cruise-scraper
+cargo check --no-default-features --features sqlite -p royaltracker-scraper
+cargo run  --no-default-features --features sqlite -p royaltracker-scraper
 ```
 
 For Postgres dev:
 
 ```sh
 export DATABASE_URL=postgres://...
-cargo run --no-default-features --features postgres -p cruise-scraper
+cargo run --no-default-features --features postgres -p royaltracker-scraper
 ```
 
 ## Build the OCI image
 
 ```sh
-nix build .#cruise-bot-image
+nix build .#royaltracker-bot-image
 docker load < result
-nix build .#cruise-scraper-image
+nix build .#royaltracker-scraper-image
 ```
 
 ## Status

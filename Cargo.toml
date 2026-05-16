@@ -1,16 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/cruise-types",
-    "crates/cruise-api",
-    "crates/cruise-storage",
-    "crates/cruise-config",
-    "crates/cruise-telegram",
-    "crates/cruise-core",
-    "crates/cruise-crypto",
-    "crates/cruise-web",
-    "bins/cruise-bot",
-    "bins/cruise-scraper",
+    "crates/royaltracker-types",
+    "crates/royaltracker-api",
+    "crates/royaltracker-storage",
+    "crates/royaltracker-config",
+    "crates/royaltracker-telegram",
+    "crates/royaltracker-core",
+    "crates/royaltracker-crypto",
+    "crates/royaltracker-web",
+    "bins/royaltracker-bot",
+    "bins/royaltracker-scraper",
 ]
 
 [workspace.package]
@@ -21,14 +21,14 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-cruise-types     = { path = "crates/cruise-types" }
-cruise-api       = { path = "crates/cruise-api" }
-cruise-storage   = { path = "crates/cruise-storage", default-features = false }
-cruise-config    = { path = "crates/cruise-config" }
-cruise-telegram  = { path = "crates/cruise-telegram" }
-cruise-core      = { path = "crates/cruise-core" }
-cruise-crypto    = { path = "crates/cruise-crypto" }
-cruise-web       = { path = "crates/cruise-web", default-features = false }
+royaltracker-types     = { path = "crates/royaltracker-types" }
+royaltracker-api       = { path = "crates/royaltracker-api" }
+royaltracker-storage   = { path = "crates/royaltracker-storage", default-features = false }
+royaltracker-config    = { path = "crates/royaltracker-config" }
+royaltracker-telegram  = { path = "crates/royaltracker-telegram" }
+royaltracker-core      = { path = "crates/royaltracker-core" }
+royaltracker-crypto    = { path = "crates/royaltracker-crypto" }
+royaltracker-web       = { path = "crates/royaltracker-web", default-features = false }
 
 tokio       = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
 sqlx        = { version = "0.8", default-features = false }
