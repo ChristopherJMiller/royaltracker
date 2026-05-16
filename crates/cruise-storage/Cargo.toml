@@ -1,0 +1,36 @@
+[package]
+name = "cruise-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+sqlite = [
+    "sqlx/sqlite",
+    "sqlx/runtime-tokio-rustls",
+    "sqlx/macros",
+    "sqlx/migrate",
+    "sqlx/chrono",
+]
+postgres = [
+    "sqlx/postgres",
+    "sqlx/runtime-tokio-rustls",
+    "sqlx/macros",
+    "sqlx/migrate",
+    "sqlx/chrono",
+    "sqlx/json",
+]
+
+[dependencies]
+cruise-types = { workspace = true }
+sqlx         = { workspace = true }
+tokio        = { workspace = true }
+chrono       = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+async-trait  = { workspace = true }
+tracing      = { workspace = true }

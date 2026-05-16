@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Cruise Price Tracker</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          tg: {
+            bg:        'var(--tg-theme-bg-color, #fff)',
+            text:      'var(--tg-theme-text-color, #000)',
+            hint:      'var(--tg-theme-hint-color, #999)',
+            link:      'var(--tg-theme-link-color, #2481cc)',
+            button:    'var(--tg-theme-button-color, #2481cc)',
+            btext:     'var(--tg-theme-button-text-color, #fff)',
+            secondary: 'var(--tg-theme-secondary-bg-color, #f1f1f1)',
+          },
+        },
+      },
+    },
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<style>
+  button:not(:disabled) { cursor: pointer; }
+</style>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛳️%3C/text%3E%3C/svg%3E" />
+</head>
+<body class="bg-tg-bg text-tg-text min-h-full font-sans antialiased">
+  <div id="app"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

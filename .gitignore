@@ -1,0 +1,19 @@
+/target
+/result
+/result-*
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+config.toml
+/scratch/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.direnv/
+
+# Local-only dev test helpers — never commit
+pws.txt
+*.password
+output.txt

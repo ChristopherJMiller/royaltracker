@@ -1,0 +1,36 @@
+[package]
+name = "cruise-bot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["postgres"]
+sqlite   = ["cruise-storage/sqlite",   "cruise-web/sqlite"]
+postgres = ["cruise-storage/postgres", "cruise-web/postgres"]
+
+[[bin]]
+name = "cruise-bot"
+path = "src/main.rs"
+
+[dependencies]
+cruise-api      = { workspace = true }
+cruise-config   = { workspace = true }
+cruise-crypto   = { workspace = true }
+cruise-storage  = { workspace = true, default-features = false }
+cruise-telegram = { workspace = true }
+cruise-types    = { workspace = true }
+cruise-web      = { workspace = true, default-features = false }
+
+teloxide           = { workspace = true }
+tokio              = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net"] }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow             = { workspace = true }
+chrono             = { workspace = true }
+serde              = { workspace = true }
+async-trait        = { workspace = true }
+axum               = { workspace = true }
+url                = { workspace = true }
