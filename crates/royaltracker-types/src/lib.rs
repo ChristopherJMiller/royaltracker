@@ -83,10 +83,46 @@ pub struct Booking {
     pub ship_code: String,
     pub sail_date: NaiveDate,
     pub passenger_id: Option<String>,
-    pub user_id: Option<i64>,
     pub nights: Option<i32>,
     pub package_code: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertMode {
+    AnyDrop,
+    BelowThreshold,
+}
+
+impl AlertMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlertMode::AnyDrop => "any_drop",
+            AlertMode::BelowThreshold => "below_threshold",
+        }
+    }
+}
+
+impl std::fmt::Display for AlertMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for AlertMode {
+    type Err = ParseAlertModeError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "any_drop" => Ok(AlertMode::AnyDrop),
+            "below_threshold" => Ok(AlertMode::BelowThreshold),
+            _ => Err(ParseAlertModeError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown alert mode: {0}")]
+pub struct ParseAlertModeError(pub String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchedProduct {
@@ -96,6 +132,8 @@ pub struct WatchedProduct {
     pub product_code: String,
     pub label: Option<String>,
     pub active: bool,
+    pub alert_mode: AlertMode,
+    pub alert_threshold: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

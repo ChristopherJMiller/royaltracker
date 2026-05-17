@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
-use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
+use royaltracker_types::{AlertMode, Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
@@ -127,15 +127,14 @@ impl PriceRepo for SqliteRepo {
         sqlx::query(
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
-                                  passenger_id, user_id, nights, package_code)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                                  passenger_id, nights, package_code)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(reservation_id) DO UPDATE SET
                 brand = excluded.brand,
                 account_id = excluded.account_id,
                 ship_code = excluded.ship_code,
                 sail_date = excluded.sail_date,
                 passenger_id = excluded.passenger_id,
-                user_id = excluded.user_id,
                 nights = excluded.nights,
                 package_code = excluded.package_code,
                 updated_at = datetime('now')
@@ -147,7 +146,6 @@ impl PriceRepo for SqliteRepo {
         .bind(&b.ship_code)
         .bind(b.sail_date.format("%Y-%m-%d").to_string())
         .bind(&b.passenger_id)
-        .bind(b.user_id)
         .bind(b.nights)
         .bind(&b.package_code)
         .execute(&self.pool)
@@ -157,31 +155,59 @@ impl PriceRepo for SqliteRepo {
 
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
-            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, user_id, nights, package_code FROM bookings ORDER BY sail_date",
+            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code FROM bookings ORDER BY sail_date",
         )
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(|r| {
-                let brand_s: String = r.try_get("brand")?;
-                let sail_s: String = r.try_get("sail_date")?;
-                Ok(Booking {
-                    reservation_id: r.try_get("reservation_id")?,
-                    brand: Brand::from_str(&brand_s)
-                        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-                    account_id: r.try_get("account_id")?,
-                    ship_code: r.try_get("ship_code")?,
-                    sail_date: NaiveDate::parse_from_str(&sail_s, "%Y-%m-%d")
-                        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-                    passenger_id: r.try_get("passenger_id")?,
-                    user_id: r.try_get("user_id")?,
-                    nights: r.try_get("nights")?,
-                    package_code: r.try_get("package_code")?,
-                })
-            })
-            .collect::<Result<Vec<_>, sqlx::Error>>()
-            .map_err(Into::into)
+        rows.into_iter().map(row_to_booking_sqlite).collect()
+    }
+
+    async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError> {
+        let rows = sqlx::query(
+            r#"SELECT b.reservation_id, b.brand, b.account_id, b.ship_code, b.sail_date,
+                      b.passenger_id, b.nights, b.package_code
+               FROM bookings b
+               JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
+               WHERE s.user_id = ?1
+               ORDER BY b.sail_date"#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(row_to_booking_sqlite).collect()
+    }
+
+    async fn subscribe_user_to_booking(
+        &self,
+        reservation_id: &str,
+        user_id: i64,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"INSERT INTO booking_subscribers (reservation_id, user_id)
+               VALUES (?1, ?2)
+               ON CONFLICT(reservation_id, user_id) DO NOTHING"#,
+        )
+        .bind(reservation_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn user_owns_reservation(
+        &self,
+        user_id: i64,
+        reservation_id: &str,
+    ) -> Result<bool, StorageError> {
+        let row = sqlx::query(
+            "SELECT 1 AS hit FROM booking_subscribers WHERE user_id = ?1 AND reservation_id = ?2",
+        )
+        .bind(user_id)
+        .bind(reservation_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.is_some())
     }
 
     async fn upsert_watched(
@@ -212,25 +238,37 @@ impl PriceRepo for SqliteRepo {
 
     async fn list_active_watched(&self) -> Result<Vec<WatchedProduct>, StorageError> {
         let rows = sqlx::query(
-            "SELECT id, reservation_id, category_prefix, product_code, label, active FROM products_watched WHERE active = 1",
+            "SELECT id, reservation_id, category_prefix, product_code, label, active, alert_mode, alert_threshold FROM products_watched WHERE active = 1",
         )
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(|r| -> Result<WatchedProduct, sqlx::Error> {
-                let active_i: i64 = r.try_get("active")?;
-                Ok(WatchedProduct {
-                    id: r.try_get("id")?,
-                    reservation_id: r.try_get("reservation_id")?,
-                    category_prefix: r.try_get("category_prefix")?,
-                    product_code: r.try_get("product_code")?,
-                    label: r.try_get("label")?,
-                    active: active_i != 0,
-                })
-            })
-            .collect::<Result<Vec<_>, sqlx::Error>>()
-            .map_err(Into::into)
+        rows.into_iter().map(row_to_watched_sqlite).collect()
+    }
+
+    async fn set_watch_alert(
+        &self,
+        watched_id: i64,
+        mode: AlertMode,
+        threshold: Option<f64>,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE products_watched SET alert_mode = ?1, alert_threshold = ?2 WHERE id = ?3",
+        )
+        .bind(mode.as_str())
+        .bind(threshold)
+        .bind(watched_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn deactivate_watched(&self, watched_id: i64) -> Result<(), StorageError> {
+        sqlx::query("UPDATE products_watched SET active = 0 WHERE id = ?1")
+            .bind(watched_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn insert_snapshot(&self, s: &PriceSnapshot) -> Result<i64, StorageError> {
@@ -449,6 +487,38 @@ impl PriceRepo for SqliteRepo {
             })
             .collect()
     }
+}
+
+fn row_to_booking_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<Booking, StorageError> {
+    let brand_s: String = r.try_get("brand")?;
+    let sail_s: String = r.try_get("sail_date")?;
+    Ok(Booking {
+        reservation_id: r.try_get("reservation_id")?,
+        brand: Brand::from_str(&brand_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        account_id: r.try_get("account_id")?,
+        ship_code: r.try_get("ship_code")?,
+        sail_date: NaiveDate::parse_from_str(&sail_s, "%Y-%m-%d")
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        passenger_id: r.try_get("passenger_id")?,
+        nights: r.try_get("nights")?,
+        package_code: r.try_get("package_code")?,
+    })
+}
+
+fn row_to_watched_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<WatchedProduct, StorageError> {
+    let active_i: i64 = r.try_get("active")?;
+    let mode_s: String = r.try_get("alert_mode")?;
+    Ok(WatchedProduct {
+        id: r.try_get("id")?,
+        reservation_id: r.try_get("reservation_id")?,
+        category_prefix: r.try_get("category_prefix")?,
+        product_code: r.try_get("product_code")?,
+        label: r.try_get("label")?,
+        active: active_i != 0,
+        alert_mode: AlertMode::from_str(&mode_s)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        alert_threshold: r.try_get("alert_threshold")?,
+    })
 }
 
 fn row_to_catalog(r: sqlx::sqlite::SqliteRow) -> Result<CatalogEntry, StorageError> {

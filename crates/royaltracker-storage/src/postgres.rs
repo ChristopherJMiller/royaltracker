@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
+use royaltracker_types::{AlertMode, Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Row};
 use std::str::FromStr;
@@ -30,7 +30,6 @@ fn row_to_booking(r: &PgRow) -> Result<Booking, sqlx::Error> {
         ship_code: r.try_get("ship_code")?,
         sail_date: r.try_get("sail_date")?,
         passenger_id: r.try_get("passenger_id")?,
-        user_id: r.try_get("user_id")?,
         nights: r.try_get("nights")?,
         package_code: r.try_get("package_code")?,
     })
@@ -131,15 +130,14 @@ impl PriceRepo for PostgresRepo {
         sqlx::query(
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
-                                  passenger_id, user_id, nights, package_code)
-            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9)
+                                  passenger_id, nights, package_code)
+            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (reservation_id) DO UPDATE SET
                 brand = EXCLUDED.brand,
                 account_id = EXCLUDED.account_id,
                 ship_code = EXCLUDED.ship_code,
                 sail_date = EXCLUDED.sail_date,
                 passenger_id = EXCLUDED.passenger_id,
-                user_id = EXCLUDED.user_id,
                 nights = EXCLUDED.nights,
                 package_code = EXCLUDED.package_code,
                 updated_at = now()
@@ -151,7 +149,6 @@ impl PriceRepo for PostgresRepo {
         .bind(&b.ship_code)
         .bind(b.sail_date)
         .bind(&b.passenger_id)
-        .bind(b.user_id)
         .bind(b.nights)
         .bind(&b.package_code)
         .execute(&self.pool)
@@ -162,12 +159,59 @@ impl PriceRepo for PostgresRepo {
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT reservation_id, brand::text AS brand, account_id, ship_code,
-                      sail_date, passenger_id, user_id, nights, package_code
+                      sail_date, passenger_id, nights, package_code
                FROM bookings ORDER BY sail_date"#,
         )
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_booking).collect::<Result<_, _>>().map_err(Into::into)
+    }
+
+    async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError> {
+        let rows = sqlx::query(
+            r#"SELECT b.reservation_id, b.brand::text AS brand, b.account_id, b.ship_code,
+                      b.sail_date, b.passenger_id, b.nights, b.package_code
+               FROM bookings b
+               JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
+               WHERE s.user_id = $1
+               ORDER BY b.sail_date"#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_booking).collect::<Result<_, _>>().map_err(Into::into)
+    }
+
+    async fn subscribe_user_to_booking(
+        &self,
+        reservation_id: &str,
+        user_id: i64,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"INSERT INTO booking_subscribers (reservation_id, user_id)
+               VALUES ($1, $2)
+               ON CONFLICT DO NOTHING"#,
+        )
+        .bind(reservation_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn user_owns_reservation(
+        &self,
+        user_id: i64,
+        reservation_id: &str,
+    ) -> Result<bool, StorageError> {
+        let row = sqlx::query(
+            "SELECT 1 AS hit FROM booking_subscribers WHERE user_id = $1 AND reservation_id = $2",
+        )
+        .bind(user_id)
+        .bind(reservation_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.is_some())
     }
 
     async fn upsert_watched(
@@ -198,25 +242,38 @@ impl PriceRepo for PostgresRepo {
 
     async fn list_active_watched(&self) -> Result<Vec<WatchedProduct>, StorageError> {
         let rows = sqlx::query(
-            r#"SELECT id, reservation_id, category_prefix, product_code, label, active
+            r#"SELECT id, reservation_id, category_prefix, product_code, label, active,
+                      alert_mode::text AS alert_mode, alert_threshold
                FROM products_watched WHERE active = TRUE"#,
         )
         .fetch_all(&self.pool)
         .await?;
+        rows.iter().map(row_to_watched_pg).collect()
+    }
 
-        rows.iter()
-            .map(|r| -> Result<WatchedProduct, sqlx::Error> {
-                Ok(WatchedProduct {
-                    id: r.try_get("id")?,
-                    reservation_id: r.try_get("reservation_id")?,
-                    category_prefix: r.try_get("category_prefix")?,
-                    product_code: r.try_get("product_code")?,
-                    label: r.try_get("label")?,
-                    active: r.try_get("active")?,
-                })
-            })
-            .collect::<Result<_, _>>()
-            .map_err(Into::into)
+    async fn set_watch_alert(
+        &self,
+        watched_id: i64,
+        mode: AlertMode,
+        threshold: Option<f64>,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE products_watched SET alert_mode = $1::alert_mode_kind, alert_threshold = $2 WHERE id = $3",
+        )
+        .bind(mode.as_str())
+        .bind(threshold)
+        .bind(watched_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn deactivate_watched(&self, watched_id: i64) -> Result<(), StorageError> {
+        sqlx::query("UPDATE products_watched SET active = FALSE WHERE id = $1")
+            .bind(watched_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn insert_snapshot(&self, s: &PriceSnapshot) -> Result<i64, StorageError> {
@@ -419,6 +476,21 @@ impl PriceRepo for PostgresRepo {
             })
             .collect()
     }
+}
+
+fn row_to_watched_pg(r: &PgRow) -> Result<WatchedProduct, StorageError> {
+    let mode_s: String = r.try_get("alert_mode")?;
+    Ok(WatchedProduct {
+        id: r.try_get("id")?,
+        reservation_id: r.try_get("reservation_id")?,
+        category_prefix: r.try_get("category_prefix")?,
+        product_code: r.try_get("product_code")?,
+        label: r.try_get("label")?,
+        active: r.try_get("active")?,
+        alert_mode: AlertMode::from_str(&mode_s)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        alert_threshold: r.try_get("alert_threshold")?,
+    })
 }
 
 fn row_to_catalog_pg(r: &PgRow) -> Result<CatalogEntry, StorageError> {

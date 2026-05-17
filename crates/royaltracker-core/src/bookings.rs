@@ -75,24 +75,33 @@ pub async fn discover_and_persist_bookings(
                 .unwrap_or_else(|| chrono::Utc::now().date_naive());
 
             let booking = Booking {
-                reservation_id,
+                reservation_id: reservation_id.clone(),
                 brand,
                 account_id: token.account_id.clone(),
                 ship_code,
                 sail_date,
                 passenger_id,
-                user_id: Some(user.id),
                 nights: summary.number_of_nights,
                 package_code: summary.package_code,
             };
 
-            match repo.upsert_booking(&booking).await {
-                Ok(()) => report.persisted += 1,
-                Err(e) => {
-                    warn!(error = %e, "upsert_booking failed");
-                    report.errors.push(format!("upsert: {e}"));
-                }
+            if let Err(e) = repo.upsert_booking(&booking).await {
+                warn!(error = %e, "upsert_booking failed");
+                report.errors.push(format!("upsert: {e}"));
+                continue;
             }
+            // Subscribe this user to the booking. Multiple users on the same
+            // reservation (e.g. partners on the same cruise) each get their own
+            // subscription instead of clobbering each other.
+            if let Err(e) = repo
+                .subscribe_user_to_booking(&reservation_id, user.id)
+                .await
+            {
+                warn!(error = %e, "subscribe_user_to_booking failed");
+                report.errors.push(format!("subscribe: {e}"));
+                continue;
+            }
+            report.persisted += 1;
         }
     }
 

@@ -75,7 +75,7 @@ pub async fn run_scrape_cycle(
         }
         snapshots_written += 1;
 
-        if let Some(diff) = detect_diff(w.id, previous.as_ref(), &current) {
+        if let Some(diff) = detect_diff(w, previous.as_ref(), &current) {
             match repo.insert_diff(&diff).await {
                 Ok(diff_id) => {
                     diffs_detected += 1;

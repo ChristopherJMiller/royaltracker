@@ -2,6 +2,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use royaltracker_storage::{CatalogEntry, HistoryPoint, PriceRepo};
+use royaltracker_types::AlertMode;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -157,12 +159,18 @@ pub async fn refresh_catalog(
     user: AuthedUser,
     Json(body): Json<CatalogRefreshBody>,
 ) -> Result<Json<CatalogRefreshResponse>, ApiError> {
+    if !s
+        .repo
+        .user_owns_reservation(user.db_user.id, &body.reservation_id)
+        .await
+        .map_err(db_err)?
+    {
+        return Err((StatusCode::NOT_FOUND, "booking not found".into()));
+    }
     let all = s.repo.list_bookings().await.map_err(db_err)?;
     let booking = all
         .into_iter()
-        .find(|b| {
-            b.reservation_id == body.reservation_id && b.user_id == Some(user.db_user.id)
-        })
+        .find(|b| b.reservation_id == body.reservation_id)
         .ok_or((StatusCode::NOT_FOUND, "booking not found".into()))?;
 
     // GraphQL endpoint is anonymous (appkey only), so we don't need the user's
@@ -218,20 +226,23 @@ pub async fn list_bookings(
     State(s): State<Arc<AppState>>,
     user: AuthedUser,
 ) -> Result<Json<Vec<BookingDto>>, ApiError> {
-    let all = s.repo.list_bookings().await.map_err(db_err)?;
-    let mine = all
-        .into_iter()
-        .filter(|b| b.user_id == Some(user.db_user.id))
-        .map(|b| BookingDto {
-            reservation_id: b.reservation_id,
-            brand: b.brand.to_string(),
-            ship_code: b.ship_code,
-            sail_date: b.sail_date,
-            nights: b.nights,
-            package_code: b.package_code,
-        })
-        .collect();
-    Ok(Json(mine))
+    let mine = s
+        .repo
+        .list_bookings_for_user(user.db_user.id)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(
+        mine.into_iter()
+            .map(|b| BookingDto {
+                reservation_id: b.reservation_id,
+                brand: b.brand.to_string(),
+                ship_code: b.ship_code,
+                sail_date: b.sail_date,
+                nights: b.nights,
+                package_code: b.package_code,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -316,24 +327,47 @@ pub struct WatchedDto {
     pub category_prefix: String,
     pub product_code: String,
     pub label: Option<String>,
+    pub alert_mode: String,
+    pub alert_threshold: Option<f64>,
+    pub latest_price: Option<f64>,
 }
 
 pub async fn list_watched(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
 ) -> Result<Json<Vec<WatchedDto>>, ApiError> {
+    let mine = s
+        .repo
+        .list_bookings_for_user(user.db_user.id)
+        .await
+        .map_err(db_err)?;
+    let my_reservations: std::collections::HashSet<String> =
+        mine.into_iter().map(|b| b.reservation_id).collect();
+
     let ws = s.repo.list_active_watched().await.map_err(db_err)?;
-    Ok(Json(
-        ws.into_iter()
-            .map(|w| WatchedDto {
-                id: w.id,
-                reservation_id: w.reservation_id,
-                category_prefix: w.category_prefix,
-                product_code: w.product_code,
-                label: w.label,
-            })
-            .collect(),
-    ))
+    let mut out = Vec::with_capacity(ws.len());
+    for w in ws {
+        if !my_reservations.contains(&w.reservation_id) {
+            continue;
+        }
+        let latest = s
+            .repo
+            .latest_snapshot(w.id)
+            .await
+            .map_err(db_err)?
+            .and_then(|s| s.adult_promo_price);
+        out.push(WatchedDto {
+            id: w.id,
+            reservation_id: w.reservation_id,
+            category_prefix: w.category_prefix,
+            product_code: w.product_code,
+            label: w.label,
+            alert_mode: w.alert_mode.to_string(),
+            alert_threshold: w.alert_threshold,
+            latest_price: latest,
+        });
+    }
+    Ok(Json(out))
 }
 
 #[derive(Deserialize)]
@@ -346,9 +380,17 @@ pub struct AddWatchedBody {
 
 pub async fn add_watched(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
     Json(body): Json<AddWatchedBody>,
 ) -> Result<Json<i64>, ApiError> {
+    if !s
+        .repo
+        .user_owns_reservation(user.db_user.id, &body.reservation_id)
+        .await
+        .map_err(db_err)?
+    {
+        return Err((StatusCode::NOT_FOUND, "booking not found".into()));
+    }
     let id = s
         .repo
         .upsert_watched(
@@ -359,20 +401,94 @@ pub async fn add_watched(
         )
         .await
         .map_err(db_err)?;
+
+    // Seed a baseline price from the catalog cache so the user sees a price
+    // immediately (and the chart isn't empty until tomorrow's scrape). Only
+    // seed if we don't already have one — otherwise re-adding a removed watch
+    // would dump a stale catalog price into the history.
+    let already_has_snapshot = s.repo.latest_snapshot(id).await.map_err(db_err)?.is_some();
+    if !already_has_snapshot {
+        if let Ok(entries) = s.repo.list_catalog_by_reservation(&body.reservation_id).await {
+            if let Some(entry) = entries
+                .into_iter()
+                .find(|e| e.product_code == body.product_code)
+            {
+                if let Some(price) = entry.starting_price {
+                    let snap = royaltracker_types::PriceSnapshot {
+                        watched_id: id,
+                        fetched_at: Utc::now(),
+                        adult_promo_price: Some(price),
+                        child_promo_price: None,
+                        raw_response: serde_json::json!({ "source": "catalog_baseline" }),
+                    };
+                    if let Err(e) = s.repo.insert_snapshot(&snap).await {
+                        tracing::warn!(error = %e, watched_id = id, "seed baseline failed");
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Json(id))
 }
 
 pub async fn remove_watched(
-    State(_s): State<Arc<AppState>>,
-    _user: AuthedUser,
-    Path(_id): Path<i64>,
+    State(s): State<Arc<AppState>>,
+    user: AuthedUser,
+    Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    // For now soft-removal is via active flag; storage layer doesn't expose that yet.
-    // Adding a proper deactivate_watched method is a small follow-up.
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        "remove_watched: pending storage method".into(),
-    ))
+    if !watch_belongs_to_user(&*s.repo, user.db_user.id, id).await? {
+        return Err((StatusCode::NOT_FOUND, "watch not found".into()));
+    }
+    s.repo.deactivate_watched(id).await.map_err(db_err)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct AlertConfigBody {
+    pub alert_mode: String,
+    pub alert_threshold: Option<f64>,
+}
+
+pub async fn set_alert(
+    State(s): State<Arc<AppState>>,
+    user: AuthedUser,
+    Path(id): Path<i64>,
+    Json(body): Json<AlertConfigBody>,
+) -> Result<StatusCode, ApiError> {
+    if !watch_belongs_to_user(&*s.repo, user.db_user.id, id).await? {
+        return Err((StatusCode::NOT_FOUND, "watch not found".into()));
+    }
+    let mode = body
+        .alert_mode
+        .parse::<AlertMode>()
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("alert_mode: {e}")))?;
+    let threshold = match mode {
+        AlertMode::BelowThreshold => Some(body.alert_threshold.ok_or((
+            StatusCode::BAD_REQUEST,
+            "alert_threshold required for below_threshold".into(),
+        ))?),
+        AlertMode::AnyDrop => None,
+    };
+    s.repo
+        .set_watch_alert(id, mode, threshold)
+        .await
+        .map_err(db_err)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn watch_belongs_to_user(
+    repo: &dyn PriceRepo,
+    user_id: i64,
+    watch_id: i64,
+) -> Result<bool, ApiError> {
+    let watches = repo.list_active_watched().await.map_err(db_err)?;
+    let Some(w) = watches.into_iter().find(|w| w.id == watch_id) else {
+        return Ok(false);
+    };
+    repo.user_owns_reservation(user_id, &w.reservation_id)
+        .await
+        .map_err(db_err)
 }
 
 pub async fn history(

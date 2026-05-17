@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
+use royaltracker_types::{AlertMode, Booking, Brand, Diff, PriceSnapshot, User, WatchedProduct};
 
 #[derive(Debug, Clone)]
 pub struct NewUser<'a> {
@@ -36,6 +36,17 @@ pub trait PriceRepo: Send + Sync + 'static {
 
     async fn upsert_booking(&self, booking: &Booking) -> Result<(), StorageError>;
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError>;
+    async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError>;
+    async fn subscribe_user_to_booking(
+        &self,
+        reservation_id: &str,
+        user_id: i64,
+    ) -> Result<(), StorageError>;
+    async fn user_owns_reservation(
+        &self,
+        user_id: i64,
+        reservation_id: &str,
+    ) -> Result<bool, StorageError>;
 
     async fn upsert_watched(
         &self,
@@ -44,6 +55,15 @@ pub trait PriceRepo: Send + Sync + 'static {
         product_code: &str,
         label: Option<&str>,
     ) -> Result<i64, StorageError>;
+
+    async fn set_watch_alert(
+        &self,
+        watched_id: i64,
+        mode: AlertMode,
+        threshold: Option<f64>,
+    ) -> Result<(), StorageError>;
+
+    async fn deactivate_watched(&self, watched_id: i64) -> Result<(), StorageError>;
 
     async fn list_active_watched(&self) -> Result<Vec<WatchedProduct>, StorageError>;
 

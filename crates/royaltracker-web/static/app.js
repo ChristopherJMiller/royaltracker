@@ -249,21 +249,38 @@ function BookingHeader({ booking }) {
     </div>`;
 }
 
-function WatchedList({ watched, booking, onOpen }) {
+function alertSummary(w) {
+  if (w.alert_mode === "below_threshold" && w.alert_threshold != null) {
+    return `🔔 below $${w.alert_threshold.toFixed(2)}`;
+  }
+  return "🔔 any drop";
+}
+
+function WatchedList({ watched, booking, onOpen, onRemove }) {
   const mine = watched.filter((w) => w.reservation_id === booking.reservation_id);
   if (mine.length === 0) return null;
   return html`
     <div class="space-y-2">
       <h3 class="text-sm uppercase tracking-wide text-tg-hint">Tracking</h3>
       ${mine.map((w) => html`
-        <button key=${w.id} onClick=${() => onOpen(w)}
-                class="w-full text-left bg-tg-secondary rounded-lg p-3 hover:bg-opacity-70 transition">
-          <div class="flex justify-between">
-            <span class="font-medium">${w.label || w.product_code}</span>
-            <span class="text-tg-hint text-sm">${w.category_prefix}</span>
-          </div>
-          <div class="text-xs text-tg-hint mt-1">tap for chart →</div>
-        </button>`)}
+        <div key=${w.id} class="bg-tg-secondary rounded-lg p-3 flex items-stretch gap-2">
+          <button onClick=${() => onOpen(w)} class="flex-1 text-left hover:opacity-80 transition">
+            <div class="flex justify-between">
+              <span class="font-medium">${w.label || w.product_code}</span>
+              <span class="text-tg-hint text-sm">
+                ${w.latest_price != null ? `$${w.latest_price.toFixed(2)}` : "—"}
+              </span>
+            </div>
+            <div class="text-xs text-tg-hint mt-1">
+              ${alertSummary(w)} · tap for chart →
+            </div>
+          </button>
+          <button onClick=${() => onRemove(w)}
+                  title="Stop tracking"
+                  class="px-2 text-tg-hint hover:text-red-500 transition self-stretch">
+            🗑️
+          </button>
+        </div>`)}
     </div>`;
 }
 
@@ -384,23 +401,120 @@ function BookingView({ booking, watched, catalog, onBack, onOpenWatched, refresh
     }
   }
 
+  async function removeWatched(w) {
+    if (!confirm(`Stop tracking "${w.label || w.product_code}"?`)) return;
+    try {
+      await api(`/api/watched/${w.id}`, { method: "DELETE" });
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      await refreshWatched();
+    } catch (e) {
+      tg?.HapticFeedback?.notificationOccurred?.("error");
+      alert(`Failed: ${e.message}`);
+    }
+  }
+
   return html`
     <section class="space-y-4">
       <button onClick=${onBack} class="text-tg-link text-sm">← All bookings</button>
       <${BookingHeader} booking=${booking} />
-      <${WatchedList} watched=${watched} booking=${booking} onOpen=${onOpenWatched} />
+      <${WatchedList} watched=${watched} booking=${booking}
+                      onOpen=${onOpenWatched} onRemove=${removeWatched} />
       <${CatalogBrowser} booking=${booking} catalog=${catalog}
                          onAdd=${addWatched} onRefreshCatalog=${refreshCatalog} />
     </section>`;
 }
 
-function ProductDetail({ watched, onBack }) {
+function AlertEditor({ watched, onSaved }) {
+  const [mode, setMode] = useState(watched.alert_mode || "any_drop");
+  const [threshold, setThreshold] = useState(
+    watched.alert_threshold != null ? String(watched.alert_threshold) : "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+
+  async function save() {
+    setBusy(true);
+    setStatus("");
+    try {
+      const body = { alert_mode: mode };
+      if (mode === "below_threshold") {
+        const n = parseFloat(threshold);
+        if (!Number.isFinite(n) || n <= 0) {
+          setStatus("Enter a positive threshold.");
+          setBusy(false);
+          return;
+        }
+        body.alert_threshold = n;
+      }
+      await api(`/api/watched/${watched.id}/alert`, { method: "PUT", body });
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      setStatus("Saved.");
+      await onSaved();
+    } catch (e) {
+      tg?.HapticFeedback?.notificationOccurred?.("error");
+      setStatus(`Failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return html`
+    <div class="bg-tg-secondary rounded-lg p-3 space-y-3">
+      <h3 class="text-sm uppercase tracking-wide text-tg-hint">Alerts</h3>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="radio" name="mode" value="any_drop"
+               checked=${mode === "any_drop"}
+               onChange=${() => setMode("any_drop")} />
+        Any meaningful drop
+      </label>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="radio" name="mode" value="below_threshold"
+               checked=${mode === "below_threshold"}
+               onChange=${() => setMode("below_threshold")} />
+        Only when below
+        <span class="inline-flex items-center gap-1">
+          <span>$</span>
+          <input type="number" step="0.01" min="0"
+                 disabled=${mode !== "below_threshold"}
+                 value=${threshold}
+                 onInput=${(e) => setThreshold(e.target.value)}
+                 placeholder="15.99"
+                 class="w-24 bg-tg-bg text-tg-text rounded px-2 py-1 border border-tg-hint/30
+                        focus:outline-none focus:ring-1 focus:ring-tg-button" />
+        </span>
+      </label>
+      <p class="text-xs text-tg-hint">
+        Threshold mode fires once when the price crosses below — no spam if it
+        keeps dropping below the line.
+      </p>
+      <button onClick=${save} disabled=${busy}
+              class="w-full bg-tg-button text-tg-btext rounded-lg px-3 py-2 font-medium hover:opacity-90 transition disabled:opacity-50">
+        ${busy ? "Saving…" : "Save alert"}
+      </button>
+      ${status && html`<p class="text-xs text-tg-hint">${status}</p>`}
+    </div>`;
+}
+
+function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
   const [points, setPoints] = useState(null);
   const [error, setError] = useState(null);
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
   useBackButton(onBack, [watched?.id]);
+
+  async function stopTracking() {
+    if (!confirm(`Stop tracking "${watched.label || watched.product_code}"?`)) return;
+    try {
+      await api(`/api/watched/${watched.id}`, { method: "DELETE" });
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      await refreshWatched();
+      onRemoved();
+    } catch (e) {
+      tg?.HapticFeedback?.notificationOccurred?.("error");
+      alert(`Failed: ${e.message}`);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -516,6 +630,11 @@ function ProductDetail({ watched, onBack }) {
       <div class="bg-tg-secondary rounded-lg p-3">
         <canvas ref=${canvasRef} height="220"></canvas>
       </div>
+      <${AlertEditor} watched=${watched} onSaved=${refreshWatched} />
+      <button onClick=${stopTracking}
+              class="w-full bg-tg-secondary text-red-500 rounded-lg px-3 py-2 font-medium hover:opacity-80 transition">
+        🗑️ Stop tracking
+      </button>
     </section>`;
 }
 
@@ -589,8 +708,13 @@ function App() {
         refreshCatalog=${() => loadCatalog(selectedBooking)}
       />`;
   } else if (view === "detail" && selectedWatched) {
-    body = html`<${ProductDetail} watched=${selectedWatched}
-                                   onBack=${() => setView("booking")} />`;
+    // Re-resolve from `watched` so we pick up the latest alert config/price
+    // after refreshWatched() runs in the detail view.
+    const current = watched.find((w) => w.id === selectedWatched.id) || selectedWatched;
+    body = html`<${ProductDetail} watched=${current}
+                                   onBack=${() => setView("booking")}
+                                   onRemoved=${() => setView("booking")}
+                                   refreshWatched=${loadWatched} />`;
   }
 
   return html`

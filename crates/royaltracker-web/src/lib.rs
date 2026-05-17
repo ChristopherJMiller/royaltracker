@@ -6,7 +6,7 @@ mod static_assets;
 pub use auth::{verify_init_data, AuthError, AuthedUser, TgAuthOnly};
 pub use state::AppState;
 
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
@@ -24,6 +24,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/watched", get(handlers::list_watched))
         .route("/api/watched", post(handlers::add_watched))
         .route("/api/watched/:id", delete(handlers::remove_watched))
+        .route("/api/watched/:id/alert", put(handlers::set_alert))
         .route("/api/history/:watched_id", get(handlers::history))
         // Static frontend (catch-all so deep links work)
         .fallback(static_assets::serve)
