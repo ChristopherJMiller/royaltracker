@@ -23,6 +23,11 @@ pub struct CruiseClientConfig {
     pub user_agent: String,
 }
 
+/// UA must match the TLS fingerprint set by `Emulation::Chrome145` below — Akamai
+/// Bot Manager fingerprints both and flags mismatches (this is what broke us on
+/// 2026-05-17: Firefox UA on top of Chrome JA3 started getting 403s/404s).
+pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+
 impl CruiseClientConfig {
     pub fn web(brand: Brand, username: String, password: String, basic_auth_b64: String) -> Self {
         Self {
@@ -31,8 +36,7 @@ impl CruiseClientConfig {
             password,
             basic_auth_b64,
             app_key: WEB_APP_KEY.to_string(),
-            user_agent: "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-                .to_string(),
+            user_agent: DEFAULT_USER_AGENT.to_string(),
         }
     }
 }
@@ -41,12 +45,13 @@ pub struct CruiseClient {
     cfg: CruiseClientConfig,
     http: wreq::Client,
     token: Arc<Mutex<Option<TokenState>>>,
+    warmed: Arc<Mutex<bool>>,
 }
 
 impl CruiseClient {
     pub fn new(cfg: CruiseClientConfig) -> Result<Self, ApiError> {
         let http = wreq::Client::builder()
-            .emulation(wreq_util::Emulation::Chrome138)
+            .emulation(wreq_util::Emulation::Chrome145)
             .timeout(std::time::Duration::from_secs(30))
             .cookie_store(true)
             .build()?;
@@ -54,6 +59,7 @@ impl CruiseClient {
             cfg,
             http,
             token: Arc::new(Mutex::new(None)),
+            warmed: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -61,9 +67,41 @@ impl CruiseClient {
         self.cfg.brand
     }
 
+    /// Hit the brand homepage once per client to seed the cookie jar with Akamai's
+    /// `_abck` and `bm_sz` cookies. Without these, the OAuth POST gets a 403 from
+    /// Bot Manager (observed 2026-05-17). The first request returns an untrusted
+    /// `_abck=...~-1~...` but the origin still issues a JWT — Phase 0 confirmed
+    /// the auth flow is "detect mode, not enforce."
+    async fn warm_up(&self) -> Result<(), ApiError> {
+        {
+            let g = self.warmed.lock().await;
+            if *g {
+                return Ok(());
+            }
+        }
+        let url = format!("https://{}/", self.cfg.brand.host());
+        let resp = self
+            .http
+            .get(&url)
+            .header("User-Agent", &self.cfg.user_agent)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .send()
+            .await?;
+        debug!(status = %resp.status(), "warm-up GET complete");
+        // Drain the body so the connection can be reused.
+        let _ = resp.text().await;
+        let mut g = self.warmed.lock().await;
+        *g = true;
+        Ok(())
+    }
+
     #[instrument(skip(self), fields(brand = %self.cfg.brand))]
     pub async fn login(&self) -> Result<TokenState, ApiError> {
-        let url = format!("https://{}/auth/oauth2/access_token", self.cfg.brand.host());
+        self.warm_up().await?;
+
+        let host = self.cfg.brand.host();
+        let url = format!("https://{}/auth/oauth2/access_token", host);
 
         let form = [
             ("grant_type", "password"),
@@ -78,6 +116,10 @@ impl CruiseClient {
             .header("Authorization", format!("Basic {}", self.cfg.basic_auth_b64))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("User-Agent", &self.cfg.user_agent)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Origin", format!("https://{}", host))
+            .header("Referer", format!("https://{}/account/signin", host))
             .form(&form)
             .send()
             .await?;
