@@ -234,8 +234,19 @@ function BookingsList({ bookings, onOpen, onRefresh }) {
     </section>`;
 }
 
+function sharedWithLabel(sharedWith) {
+  if (!sharedWith || sharedWith.length === 0) return null;
+  const named = sharedWith.map((s) => s.display).filter(Boolean);
+  if (named.length === sharedWith.length && named.length > 0) {
+    return `👥 Booking shared with ${named.join(", ")}`;
+  }
+  const others = sharedWith.length;
+  return `👥 Booking shared with ${others} other${others === 1 ? "" : "s"}`;
+}
+
 function BookingHeader({ booking }) {
   const nights = booking.nights ? `${booking.nights} night${booking.nights === 1 ? "" : "s"}` : "";
+  const shared = sharedWithLabel(booking.shared_with);
   return html`
     <div class="bg-tg-secondary rounded-lg p-4 space-y-1">
       <div class="flex justify-between items-start">
@@ -246,6 +257,7 @@ function BookingHeader({ booking }) {
         </div>
         <div class="text-xs text-tg-hint">${brandLabel(booking.brand)}</div>
       </div>
+      ${shared ? html`<div class="text-xs text-tg-hint pt-1">${shared}</div>` : null}
     </div>`;
 }
 

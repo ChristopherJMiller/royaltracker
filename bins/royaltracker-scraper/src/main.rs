@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
-use royaltracker_api::{BookingSummary, CruiseClient, CruiseClientConfig};
+use royaltracker_api::CruiseClient;
 use royaltracker_config::Config;
-use royaltracker_core::{
-    discover_and_persist_bookings, run_scrape_cycle, sleep_with_jitter, ScrapeContext,
-};
+use royaltracker_core::{discover_with_clients, run_scrape_cycle, sleep_with_jitter};
 use royaltracker_crypto::Cipher;
 use royaltracker_storage::{connect, DefaultRepo, PriceRepo};
-use royaltracker_telegram::bot;
-use royaltracker_types::User;
+use royaltracker_telegram::{bot, Bot};
+use royaltracker_types::{Booking, Brand, User};
+use std::collections::HashMap;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -28,40 +27,86 @@ async fn main() -> Result<()> {
     let cipher = Cipher::from_base64(&cfg.encryption_key_b64).context("encryption_key_b64")?;
     let bot = bot(&cfg.telegram.bot_token);
 
+    // Phase A: per-user discovery. Each user must log in with their own
+    // credentials to enumerate *their* bookings. We collect one authenticated
+    // client per brand along the way; whichever user logged in first wins.
     let users = repo.list_active_users().await.context("list users")?;
     info!(count = users.len(), "users to scrape");
 
-    for user in users {
+    let mut clients_by_brand: HashMap<Brand, CruiseClient> = HashMap::new();
+    for user in &users {
         let label = user.rcg_username.clone();
-        if let Err(e) =
-            scrape_one_user(&repo, &cipher, &bot, &cfg.rcg_basic_auth_b64, &user).await
-        {
-            warn!(user = %label, error = %e, "user scrape failed");
-            // Best-effort notify the user that their run failed.
-            let _ = royaltracker_telegram::send_text(
-                &bot,
-                user.telegram_chat_id,
-                format!("⚠️ Today's price check failed: {e}"),
-            )
-            .await;
+        match discover_for_user(&repo, &cipher, &bot, &cfg.rcg_basic_auth_b64, user).await {
+            Ok(user_clients) => {
+                for (brand, client) in user_clients {
+                    clients_by_brand.entry(brand).or_insert(client);
+                }
+            }
+            Err(e) => {
+                warn!(user = %label, error = %e, "user discovery failed");
+                let _ = royaltracker_telegram::send_text(
+                    &bot,
+                    user.telegram_chat_id,
+                    format!("⚠️ Today's price check failed: {e}"),
+                )
+                .await;
+            }
         }
     }
+
+    // Phase B: per-booking price scrape with fan-out. Each watched product is
+    // fetched exactly once regardless of how many users share the booking.
+    if clients_by_brand.is_empty() {
+        warn!("no authenticated clients available; skipping price scrape");
+        return Ok(());
+    }
+
+    let watched = repo.list_active_watched().await.context("list watched")?;
+    if watched.is_empty() {
+        info!("no products configured; nothing to scrape");
+        return Ok(());
+    }
+
+    let bookings_by_res: HashMap<String, Booking> = repo
+        .list_bookings()
+        .await
+        .context("list bookings")?
+        .into_iter()
+        .map(|b| (b.reservation_id.clone(), b))
+        .collect();
+
+    let outcome = run_scrape_cycle(
+        &clients_by_brand,
+        &repo as &dyn PriceRepo,
+        &bot,
+        &watched,
+        &bookings_by_res,
+    )
+    .await;
+
+    info!(
+        snapshots = outcome.snapshots_written,
+        diffs = outcome.diffs_detected,
+        notified = outcome.diffs_notified,
+        watched = watched.len(),
+        bookings = bookings_by_res.len(),
+        "scrape complete"
+    );
 
     Ok(())
 }
 
-async fn scrape_one_user(
+async fn discover_for_user(
     repo: &DefaultRepo,
     cipher: &Cipher,
-    bot: &royaltracker_telegram::Bot,
+    _bot: &Bot,
     basic_auth_b64: &str,
     user: &User,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<HashMap<Brand, CruiseClient>> {
     let password_bytes = cipher.decrypt(&user.rcg_password_nonce, &user.rcg_password_ct)?;
     let password = String::from_utf8(password_bytes)?;
 
-    // Discover bookings across both brands (two logins, both JWTs cached).
-    let report = discover_and_persist_bookings(
+    let (report, clients) = discover_with_clients(
         &user.rcg_username,
         &password,
         basic_auth_b64,
@@ -69,85 +114,14 @@ async fn scrape_one_user(
         user,
     )
     .await?;
-    let api_cfg = CruiseClientConfig::web(
-        user.brand_pref,
-        user.rcg_username.clone(),
-        password,
-        basic_auth_b64.to_string(),
-    );
+
     info!(
         user = %user.rcg_username,
         persisted = report.persisted,
         logins_ok = report.logins_ok,
+        brands_authenticated = clients.len(),
         "bookings discovered+persisted"
     );
 
-    // For the price-fetch loop we still need a client to call catalog/v2 on.
-    // Use the user's brand_pref auth host (legacy default = Royal). If we
-    // later need cross-brand catalog lookups, we'll build the right client
-    // per booking.
-    let api = CruiseClient::new(api_cfg)?;
-    let _token = api.login().await?;
-
-    let bookings: Vec<BookingSummary> = api
-        .list_all_bookings()
-        .await?
-        .into_iter()
-        .map(|(_, s)| s)
-        .collect();
-
-    let watched = repo.list_active_watched().await?;
-    if watched.is_empty() {
-        info!(user = %user.rcg_username, "no products configured; skipping price loop");
-        return Ok(());
-    }
-
-    let booking_index = build_booking_index(&bookings);
-
-    let outcome = run_scrape_cycle(
-        &api,
-        repo as &dyn PriceRepo,
-        bot,
-        user.telegram_chat_id,
-        &watched,
-        |w| booking_index.get(w.reservation_id.as_str()).cloned(),
-    )
-    .await;
-
-    info!(
-        user = %user.rcg_username,
-        snapshots = outcome.snapshots_written,
-        diffs = outcome.diffs_detected,
-        notified = outcome.diffs_notified,
-        "user scrape complete"
-    );
-
-    Ok(())
-}
-
-fn build_booking_index(
-    bookings: &[BookingSummary],
-) -> std::collections::HashMap<String, ScrapeContext> {
-    bookings
-        .iter()
-        .filter_map(|b| {
-            let res = b.reservation_id.as_ref()?.clone();
-            let ship = b.ship_code.clone().unwrap_or_default();
-            let pax = b.primary_passenger_id.clone().unwrap_or_default();
-            // RCG wire format is YYYYMMDD (no dashes); fall back to YYYY-MM-DD just in case.
-            let sail = b.sail_date.as_ref().and_then(|s| {
-                chrono::NaiveDate::parse_from_str(s, "%Y%m%d")
-                    .or_else(|_| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d"))
-                    .ok()
-            }).unwrap_or_else(|| chrono::Utc::now().date_naive());
-            Some((
-                res,
-                ScrapeContext {
-                    ship_code: ship,
-                    passenger_id: pax,
-                    start_date: sail,
-                },
-            ))
-        })
-        .collect()
+    Ok(clients)
 }

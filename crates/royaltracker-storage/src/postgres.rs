@@ -4,7 +4,7 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Row};
 use std::str::FromStr;
 
-use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError};
+use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo};
 
 #[derive(Clone)]
 pub struct PostgresRepo {
@@ -13,8 +13,16 @@ pub struct PostgresRepo {
 
 impl PostgresRepo {
     pub async fn connect(url: &str) -> Result<Self, StorageError> {
+        // `min_connections(1)` forces the TLS handshake + auth round-trip to
+        // happen at pool init instead of on the first query. Without this,
+        // sqlx's "slow statement" warning fires on the first INSERT of a
+        // freshly-started job because cold connection setup (~1s on this
+        // cluster) is counted as part of the statement's execution time —
+        // server-side the INSERT itself runs in <100ms (verified via
+        // pg_stat_statements).
         let pool = PgPoolOptions::new()
             .max_connections(8)
+            .min_connections(1)
             .connect(url)
             .await?;
         Ok(Self { pool })
@@ -212,6 +220,30 @@ impl PriceRepo for PostgresRepo {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.is_some())
+    }
+
+    async fn list_subscribers_for_reservation(
+        &self,
+        reservation_id: &str,
+    ) -> Result<Vec<SubscriberInfo>, StorageError> {
+        let rows = sqlx::query(
+            r#"SELECT u.id AS user_id, u.telegram_chat_id, u.telegram_username
+               FROM booking_subscribers s
+               JOIN users u ON u.id = s.user_id
+               WHERE s.reservation_id = $1 AND u.active = TRUE"#,
+        )
+        .bind(reservation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| -> Result<SubscriberInfo, StorageError> {
+                Ok(SubscriberInfo {
+                    user_id: r.try_get("user_id")?,
+                    telegram_chat_id: r.try_get("telegram_chat_id")?,
+                    telegram_username: r.try_get("telegram_username")?,
+                })
+            })
+            .collect()
     }
 
     async fn upsert_watched(

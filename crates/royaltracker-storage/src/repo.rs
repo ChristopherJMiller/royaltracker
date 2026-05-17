@@ -48,6 +48,14 @@ pub trait PriceRepo: Send + Sync + 'static {
         reservation_id: &str,
     ) -> Result<bool, StorageError>;
 
+    /// Everyone subscribed to a given reservation. Used by the scraper to fan
+    /// out a single price-drop notification to all subscribers, and by the web
+    /// UI to show a "shared with" badge on the booking page.
+    async fn list_subscribers_for_reservation(
+        &self,
+        reservation_id: &str,
+    ) -> Result<Vec<SubscriberInfo>, StorageError>;
+
     async fn upsert_watched(
         &self,
         reservation_id: &str,
@@ -109,6 +117,13 @@ pub struct CatalogEntry {
     pub base_price_label: Option<String>,
     /// What the price is "per", e.g. `"Adult Per Day"` / `"Per Seat"`.
     pub unit_label: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubscriberInfo {
+    pub user_id: i64,
+    pub telegram_chat_id: i64,
+    pub telegram_username: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

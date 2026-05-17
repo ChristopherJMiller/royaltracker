@@ -220,6 +220,18 @@ pub struct BookingDto {
     pub sail_date: chrono::NaiveDate,
     pub nights: Option<i32>,
     pub package_code: Option<String>,
+    /// Other royaltracker users subscribed to the same reservation (i.e.
+    /// partners/family on the same cruise). Excludes the caller. Empty when
+    /// the booking is solo. Each entry's `display` is the safest non-PII
+    /// label we have: `@telegram_username` if set, else `null` (and the UI
+    /// just renders a head-count).
+    #[serde(default)]
+    pub shared_with: Vec<SharedSubscriberDto>,
+}
+
+#[derive(Serialize)]
+pub struct SharedSubscriberDto {
+    pub display: Option<String>,
 }
 
 pub async fn list_bookings(
@@ -231,18 +243,31 @@ pub async fn list_bookings(
         .list_bookings_for_user(user.db_user.id)
         .await
         .map_err(db_err)?;
-    Ok(Json(
-        mine.into_iter()
-            .map(|b| BookingDto {
-                reservation_id: b.reservation_id,
-                brand: b.brand.to_string(),
-                ship_code: b.ship_code,
-                sail_date: b.sail_date,
-                nights: b.nights,
-                package_code: b.package_code,
+    let mut out = Vec::with_capacity(mine.len());
+    for b in mine {
+        let subs = s
+            .repo
+            .list_subscribers_for_reservation(&b.reservation_id)
+            .await
+            .map_err(db_err)?;
+        let shared_with: Vec<SharedSubscriberDto> = subs
+            .into_iter()
+            .filter(|s| s.user_id != user.db_user.id)
+            .map(|s| SharedSubscriberDto {
+                display: s.telegram_username.map(|u| format!("@{u}")),
             })
-            .collect(),
-    ))
+            .collect();
+        out.push(BookingDto {
+            reservation_id: b.reservation_id,
+            brand: b.brand.to_string(),
+            ship_code: b.ship_code,
+            sail_date: b.sail_date,
+            nights: b.nights,
+            package_code: b.package_code,
+            shared_with,
+        });
+    }
+    Ok(Json(out))
 }
 
 #[derive(Deserialize)]

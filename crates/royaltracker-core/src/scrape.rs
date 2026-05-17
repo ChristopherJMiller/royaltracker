@@ -2,8 +2,8 @@ use chrono::Utc;
 use royaltracker_api::{CruiseClient, ProductPrice};
 use royaltracker_storage::{CatalogEntry, PriceRepo};
 use royaltracker_telegram::{send_diff, Bot, DiffContext};
-use royaltracker_types::{Diff, PriceSnapshot, WatchedProduct};
-use std::collections::HashMap;
+use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, WatchedProduct};
+use std::collections::{HashMap, HashSet};
 use tracing::{info, warn};
 
 use crate::diff::detect_diff;
@@ -14,13 +14,23 @@ pub struct ScrapeOutcome {
     pub diffs_notified: usize,
 }
 
+/// One scrape pass over all active watched products.
+///
+/// Deduplicated by reservation: each watched product is fetched **once** per
+/// cycle regardless of how many users subscribe to the underlying booking.
+/// When a price drop is detected, the alert is fanned out to every subscriber
+/// (their telegram chat id) of that reservation.
+///
+/// `clients_by_brand` is the pool of authenticated clients to use for price
+/// fetches — typically one per brand, sourced from any user's discovery
+/// login. A watched product whose booking's brand has no client in the pool
+/// is skipped with a warning.
 pub async fn run_scrape_cycle(
-    api: &CruiseClient,
+    clients_by_brand: &HashMap<Brand, CruiseClient>,
     repo: &(dyn PriceRepo),
     bot: &Bot,
-    chat_id: i64,
     watched: &[WatchedProduct],
-    resolve_context: impl Fn(&WatchedProduct) -> Option<ScrapeContext>,
+    bookings_by_res: &HashMap<String, Booking>,
 ) -> ScrapeOutcome {
     let mut snapshots_written = 0;
     let mut diffs_detected = 0;
@@ -28,9 +38,10 @@ pub async fn run_scrape_cycle(
     let mut diffs_to_mark: Vec<i64> = Vec::new();
 
     // Pre-load the catalog cache so diff messages can include MSRP. Keyed by
-    // (reservation_id, product_code). Cheap — one DB query per unique reservation.
+    // (reservation_id, product_code). One DB query per unique reservation
+    // referenced by an active watch.
     let mut catalog_index: HashMap<(String, String), CatalogEntry> = HashMap::new();
-    let mut loaded_reservations: std::collections::HashSet<String> = Default::default();
+    let mut loaded_reservations: HashSet<String> = Default::default();
     for w in watched {
         if loaded_reservations.insert(w.reservation_id.clone()) {
             if let Ok(entries) = repo.list_catalog_by_reservation(&w.reservation_id).await {
@@ -42,20 +53,42 @@ pub async fn run_scrape_cycle(
         }
     }
 
+    // Cache subscriber lookups per reservation so a booking with many
+    // watched products only hits the join once.
+    let mut subscribers_cache: HashMap<String, Vec<i64>> = HashMap::new();
+
     for w in watched {
-        let Some(ctx) = resolve_context(w) else {
-            warn!(watched_id = w.id, "no context resolved; skipping");
+        let Some(booking) = bookings_by_res.get(&w.reservation_id) else {
+            warn!(
+                watched_id = w.id,
+                reservation = %w.reservation_id,
+                "no booking row; skipping"
+            );
+            continue;
+        };
+
+        let Some(api) = clients_by_brand.get(&booking.brand) else {
+            warn!(
+                watched_id = w.id,
+                brand = %booking.brand,
+                "no authenticated client for brand; skipping"
+            );
+            continue;
+        };
+
+        let Some(passenger_id) = booking.passenger_id.as_deref() else {
+            warn!(watched_id = w.id, "booking has no passenger_id; skipping");
             continue;
         };
 
         let price = match api
             .fetch_product_price(
-                &ctx.ship_code,
+                &booking.ship_code,
                 &w.category_prefix,
                 &w.product_code,
                 &w.reservation_id,
-                &ctx.passenger_id,
-                ctx.start_date,
+                passenger_id,
+                booking.sail_date,
             )
             .await
         {
@@ -75,29 +108,66 @@ pub async fn run_scrape_cycle(
         }
         snapshots_written += 1;
 
-        if let Some(diff) = detect_diff(w, previous.as_ref(), &current) {
-            match repo.insert_diff(&diff).await {
-                Ok(diff_id) => {
-                    diffs_detected += 1;
-                    let label = w.label.clone().unwrap_or_else(|| w.product_code.clone());
-                    let catalog_entry = catalog_index
-                        .get(&(w.reservation_id.clone(), w.product_code.clone()));
-                    let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
-                    let context = DiffContext {
-                        label: &label,
-                        diff: &diff,
-                        msrp_label,
-                    };
-                    match send_diff(bot, chat_id, &context).await {
-                        Ok(()) => {
-                            diffs_notified += 1;
-                            diffs_to_mark.push(diff_id);
-                        }
-                        Err(e) => warn!(error = %e, "telegram send failed"),
-                    }
-                }
-                Err(e) => warn!(error = %e, watched_id = w.id, "diff insert failed"),
+        let Some(diff) = detect_diff(w, previous.as_ref(), &current) else {
+            continue;
+        };
+
+        let diff_id = match repo.insert_diff(&diff).await {
+            Ok(id) => id,
+            Err(e) => {
+                warn!(error = %e, watched_id = w.id, "diff insert failed");
+                continue;
             }
+        };
+        diffs_detected += 1;
+
+        // Resolve fan-out targets (cached per reservation).
+        let chat_ids = match subscribers_cache.get(&w.reservation_id) {
+            Some(v) => v.clone(),
+            None => {
+                let subs = repo
+                    .list_subscribers_for_reservation(&w.reservation_id)
+                    .await
+                    .unwrap_or_default();
+                let ids: Vec<i64> = subs.into_iter().map(|s| s.telegram_chat_id).collect();
+                subscribers_cache.insert(w.reservation_id.clone(), ids.clone());
+                ids
+            }
+        };
+
+        if chat_ids.is_empty() {
+            warn!(
+                watched_id = w.id,
+                reservation = %w.reservation_id,
+                "diff detected but no active subscribers to notify"
+            );
+            // Still mark notified so we don't re-process this diff forever.
+            diffs_to_mark.push(diff_id);
+            continue;
+        }
+
+        let label = w.label.clone().unwrap_or_else(|| w.product_code.clone());
+        let catalog_entry = catalog_index
+            .get(&(w.reservation_id.clone(), w.product_code.clone()));
+        let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
+        let context = DiffContext {
+            label: &label,
+            diff: &diff,
+            msrp_label,
+        };
+
+        let mut any_sent = false;
+        for chat_id in chat_ids {
+            match send_diff(bot, chat_id, &context).await {
+                Ok(()) => {
+                    diffs_notified += 1;
+                    any_sent = true;
+                }
+                Err(e) => warn!(error = %e, chat_id, "telegram send failed"),
+            }
+        }
+        if any_sent {
+            diffs_to_mark.push(diff_id);
         }
     }
 
@@ -116,13 +186,6 @@ pub async fn run_scrape_cycle(
         diffs_detected,
         diffs_notified,
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ScrapeContext {
-    pub ship_code: String,
-    pub passenger_id: String,
-    pub start_date: chrono::NaiveDate,
 }
 
 fn into_snapshot(watched_id: i64, p: &ProductPrice) -> PriceSnapshot {

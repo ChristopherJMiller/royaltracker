@@ -2,18 +2,14 @@ use chrono::NaiveDate;
 use royaltracker_api::{CruiseClient, CruiseClientConfig};
 use royaltracker_storage::PriceRepo;
 use royaltracker_types::{Booking, Brand, User};
+use std::collections::HashMap;
 use tracing::{info, warn};
 
 /// Discover all bookings across both RCG brands and persist them.
 ///
-/// We deliberately do TWO logins (one per brand's auth host) because Phase 0
-/// only verified that a JWT issued via the *Celebrity* host works for both
-/// `?brand=R` and `?brand=C` queries. We never confirmed the reverse, so the
-/// safe pattern is to log in to each brand's host and use that JWT for its
-/// own brand's bookings query.
-///
-/// Cost: 2 logins + 2 bookings calls per invocation (~4 RCG requests). Daily
-/// scrape stays well under any rate-limit ceiling.
+/// Thin wrapper around [`discover_with_clients`] for callers that don't need
+/// to reuse the authenticated clients (e.g. the web `register`/`refresh`
+/// handlers).
 pub async fn discover_and_persist_bookings(
     rcg_username: &str,
     rcg_password: &str,
@@ -21,7 +17,31 @@ pub async fn discover_and_persist_bookings(
     repo: &(dyn PriceRepo),
     user: &User,
 ) -> anyhow::Result<DiscoveryReport> {
+    let (report, _clients) =
+        discover_with_clients(rcg_username, rcg_password, basic_auth_b64, repo, user).await?;
+    Ok(report)
+}
+
+/// Discover all bookings across both RCG brands and persist them, returning
+/// the per-brand authenticated clients so the caller can reuse them for
+/// downstream API calls without logging in again.
+///
+/// We deliberately do TWO logins (one per brand's auth host) because Phase 0
+/// only verified that a JWT issued via the *Celebrity* host works for both
+/// `?brand=R` and `?brand=C` queries. We never confirmed the reverse, so the
+/// safe pattern is to log in to each brand's host and use that JWT for its
+/// own brand's bookings query.
+///
+/// Cost: 2 logins + 2 bookings calls per invocation (~4 RCG requests).
+pub async fn discover_with_clients(
+    rcg_username: &str,
+    rcg_password: &str,
+    basic_auth_b64: &str,
+    repo: &(dyn PriceRepo),
+    user: &User,
+) -> anyhow::Result<(DiscoveryReport, HashMap<Brand, CruiseClient>)> {
     let mut report = DiscoveryReport::default();
+    let mut clients: HashMap<Brand, CruiseClient> = HashMap::new();
 
     for brand in [Brand::Royal, Brand::Celebrity] {
         let cfg = CruiseClientConfig::web(
@@ -103,6 +123,10 @@ pub async fn discover_and_persist_bookings(
             }
             report.persisted += 1;
         }
+
+        // Stash the authenticated client so the caller can reuse the JWT for
+        // downstream calls (price fetches, etc.) without logging in again.
+        clients.insert(brand, client);
     }
 
     info!(
@@ -113,7 +137,7 @@ pub async fn discover_and_persist_bookings(
         "bookings discovery complete"
     );
 
-    Ok(report)
+    Ok((report, clients))
 }
 
 #[derive(Debug, Default)]

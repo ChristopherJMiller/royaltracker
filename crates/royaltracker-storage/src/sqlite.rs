@@ -5,7 +5,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
-use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError};
+use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo};
 
 #[derive(Clone)]
 pub struct SqliteRepo {
@@ -208,6 +208,30 @@ impl PriceRepo for SqliteRepo {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.is_some())
+    }
+
+    async fn list_subscribers_for_reservation(
+        &self,
+        reservation_id: &str,
+    ) -> Result<Vec<SubscriberInfo>, StorageError> {
+        let rows = sqlx::query(
+            r#"SELECT u.id AS user_id, u.telegram_chat_id, u.telegram_username
+               FROM booking_subscribers s
+               JOIN users u ON u.id = s.user_id
+               WHERE s.reservation_id = ?1 AND u.active = 1"#,
+        )
+        .bind(reservation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|r| -> Result<SubscriberInfo, StorageError> {
+                Ok(SubscriberInfo {
+                    user_id: r.try_get("user_id")?,
+                    telegram_chat_id: r.try_get("telegram_chat_id")?,
+                    telegram_username: r.try_get("telegram_username")?,
+                })
+            })
+            .collect()
     }
 
     async fn upsert_watched(
