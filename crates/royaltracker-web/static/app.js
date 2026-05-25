@@ -63,6 +63,14 @@ const fmtDateTime = (iso) =>
   });
 const fmtDateShort = (iso) =>
   new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+// Prices refresh daily, so a tracked price that's missed ~2+ refreshes is worth
+// flagging — a silently-failed scrape writes no snapshot and would otherwise
+// look like the current price. Returns null when fresh (stay quiet).
+const staleness = (iso) => {
+  if (!iso) return "not checked yet";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return days >= 2 ? `checked ${days}d ago` : null;
+};
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -274,7 +282,9 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
   return html`
     <div class="space-y-2">
       <h3 class="text-sm uppercase tracking-wide text-tg-hint">Tracking</h3>
-      ${mine.map((w) => html`
+      ${mine.map((w) => {
+        const stale = staleness(w.latest_fetched_at);
+        return html`
         <div key=${w.id} class="bg-tg-secondary rounded-lg p-3 flex items-stretch gap-2">
           <button onClick=${() => onOpen(w)} class="flex-1 text-left hover:opacity-80 transition">
             <div class="flex justify-between">
@@ -284,7 +294,7 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
               </span>
             </div>
             <div class="text-xs text-tg-hint mt-1">
-              ${alertSummary(w)} · tap for chart →
+              ${alertSummary(w)} · ${stale ? html`<span class="text-yellow-500">⚠ ${stale}</span> · ` : ""}tap for chart →
             </div>
           </button>
           <button onClick=${() => onRemove(w)}
@@ -292,7 +302,8 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
                   class="px-2 text-tg-hint hover:text-red-500 transition self-stretch">
             🗑️
           </button>
-        </div>`)}
+        </div>`;
+      })}
     </div>`;
 }
 
@@ -631,7 +642,8 @@ function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
     const last = data[0];
     const min = Math.min(...data);
     const max = Math.max(...data);
-    meta = `${points.length} snapshots · last ${last?.toFixed(2)} · low ${min?.toFixed(2)} · high ${max?.toFixed(2)}`;
+    const asOf = points[0]?.fetched_at ? ` · as of ${fmtDateShort(points[0].fetched_at)}` : "";
+    meta = `${points.length} snapshots · last ${last?.toFixed(2)} · low ${min?.toFixed(2)} · high ${max?.toFixed(2)}${asOf}`;
   }
 
   return html`

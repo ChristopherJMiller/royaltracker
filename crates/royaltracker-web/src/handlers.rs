@@ -355,6 +355,10 @@ pub struct WatchedDto {
     pub alert_mode: String,
     pub alert_threshold: Option<f64>,
     pub latest_price: Option<f64>,
+    /// When the `latest_price` snapshot was taken. The UI flags this as stale
+    /// when it's older than the daily scrape cadence, so a silently-failed
+    /// fetch (which writes no snapshot) doesn't masquerade as a live price.
+    pub latest_fetched_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub async fn list_watched(
@@ -375,12 +379,9 @@ pub async fn list_watched(
         if !my_reservations.contains(&w.reservation_id) {
             continue;
         }
-        let latest = s
-            .repo
-            .latest_snapshot(w.id)
-            .await
-            .map_err(db_err)?
-            .and_then(|s| s.adult_promo_price);
+        let latest = s.repo.latest_snapshot(w.id).await.map_err(db_err)?;
+        let latest_price = latest.as_ref().and_then(|s| s.adult_promo_price);
+        let latest_fetched_at = latest.map(|s| s.fetched_at);
         out.push(WatchedDto {
             id: w.id,
             reservation_id: w.reservation_id,
@@ -389,7 +390,8 @@ pub async fn list_watched(
             label: w.label,
             alert_mode: w.alert_mode.to_string(),
             alert_threshold: w.alert_threshold,
-            latest_price: latest,
+            latest_price,
+            latest_fetched_at,
         });
     }
     Ok(Json(out))
