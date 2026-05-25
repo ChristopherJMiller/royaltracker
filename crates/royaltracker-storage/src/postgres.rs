@@ -257,7 +257,7 @@ impl PriceRepo for PostgresRepo {
             r#"
             INSERT INTO products_watched (reservation_id, category_prefix, product_code, label, active)
             VALUES ($1, $2, $3, $4, TRUE)
-            ON CONFLICT (reservation_id, category_prefix, product_code) DO UPDATE SET
+            ON CONFLICT (reservation_id, product_code) DO UPDATE SET
                 label = COALESCE(EXCLUDED.label, products_watched.label),
                 active = TRUE
             RETURNING id
