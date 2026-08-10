@@ -158,6 +158,24 @@ pub fn ship_name(code: &str) -> Option<&'static str> {
     Some(name)
 }
 
+/// Best-effort deck number for a Royal Caribbean / Celebrity cabin number.
+///
+/// Modern ships encode the deck as the leading digit(s) followed by a 3-digit
+/// position within the deck (`D` + `NNN`): `9434` → deck 9, `3218` → deck 3,
+/// `10601` → deck 10, `12169` → deck 12. Returns `None` for the "GTY"
+/// placeholder, non-numeric input, anything shorter than 4 digits (older 3-digit
+/// schemes are ambiguous), or an implausible deck (>25).
+pub fn deck_of_cabin(cabin: &str) -> Option<u16> {
+    let c = cabin.trim();
+    if c.len() < 4 || !c.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    c[..c.len() - 3]
+        .parse::<u16>()
+        .ok()
+        .filter(|d| (1..=25).contains(d))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertMode {
@@ -245,5 +263,39 @@ impl Diff {
 
     pub fn is_drop(&self) -> bool {
         self.new_price < self.old_price
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deck_from_real_cabins() {
+        assert_eq!(deck_of_cabin("9434"), Some(9)); // 3-night interior
+        assert_eq!(deck_of_cabin("10601"), Some(10)); // 4-night balcony
+        assert_eq!(deck_of_cabin("3218"), Some(3)); // friends' oceanview
+        assert_eq!(deck_of_cabin("12169"), Some(12)); // Celebrity Apex balcony
+    }
+
+    #[test]
+    fn deck_rejects_non_cabins() {
+        assert_eq!(deck_of_cabin("GTY"), None);
+        assert_eq!(deck_of_cabin(""), None);
+        assert_eq!(deck_of_cabin("12"), None); // too short to disambiguate
+        assert_eq!(deck_of_cabin("12A"), None); // non-numeric
+        assert_eq!(deck_of_cabin("99999"), None); // deck 99 implausible
+    }
+
+    #[test]
+    fn deck_trims_whitespace() {
+        assert_eq!(deck_of_cabin(" 9434 "), Some(9));
+    }
+
+    #[test]
+    fn ship_name_known_and_unknown() {
+        assert_eq!(ship_name("WN"), Some("Wonder of the Seas"));
+        assert_eq!(ship_name("AX"), Some("Celebrity Apex"));
+        assert_eq!(ship_name("ZZ"), None);
     }
 }

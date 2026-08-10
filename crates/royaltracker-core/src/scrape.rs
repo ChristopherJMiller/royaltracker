@@ -201,14 +201,23 @@ fn itinerary_label(b: &Booking) -> String {
         s.push_str(&format!(" · {n} night{}", if n == 1 { "" } else { "s" }));
     }
     s.push_str(&format!(" · {}", b.sail_date.format("%b %-d, %Y")));
-    if let Some(cabin) = b.assigned_stateroom.as_deref() {
-        s.push_str(&format!(" · cabin {cabin} (assigned)"));
-    } else if let Some(room) = b.stateroom.as_deref() {
-        if room == "GTY" {
-            s.push_str(" · GTY");
+    // Prefer the recovered GTY cabin, else the displayed room (skip bare "GTY").
+    let effective_cabin = b
+        .assigned_stateroom
+        .as_deref()
+        .or_else(|| b.stateroom.as_deref().filter(|r| *r != "GTY"));
+    if let Some(cabin) = effective_cabin {
+        let suffix = if b.assigned_stateroom.is_some() {
+            " (assigned)"
         } else {
-            s.push_str(&format!(" · cabin {room}"));
+            ""
+        };
+        s.push_str(&format!(" · cabin {cabin}{suffix}"));
+        if let Some(deck) = royaltracker_types::deck_of_cabin(cabin) {
+            s.push_str(&format!(" · deck {deck}"));
         }
+    } else if b.stateroom.as_deref() == Some("GTY") {
+        s.push_str(" · GTY");
     }
     s
 }

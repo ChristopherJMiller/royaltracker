@@ -37,6 +37,13 @@ const BRAND_LABEL = { royal: "Royal Caribbean", celebrity: "Celebrity" };
 
 const shipName = (c) => SHIP_NAMES[c] || c;
 const brandLabel = (b) => BRAND_LABEL[b] || b;
+// Deck number from a Royal/Celebrity cabin number (D+NNN encoding). Mirrors
+// `deck_of_cabin` in royaltracker-types. Returns null for GTY / non-cabins.
+const deckOf = (cabin) => {
+  if (!cabin || !/^\d{4,}$/.test(cabin)) return null;
+  const d = parseInt(cabin.slice(0, -3), 10);
+  return d >= 1 && d <= 25 ? d : null;
+};
 const fmtSailDate = (iso) =>
   new Date(iso + "T12:00:00Z").toLocaleDateString(undefined,
     { year: "numeric", month: "long", day: "numeric" });
@@ -198,6 +205,9 @@ function Stateroom({ booking, detailed }) {
   const hidden = booking.assigned_stateroom;       // "10601" | null
   if (!displayed && !hidden) return null;
   const isGty = displayed === "GTY" || (!displayed && !!hidden);
+  const room = hidden || (displayed && displayed !== "GTY" ? displayed : null);
+  const deck = deckOf(room);
+  const deckTag = deck ? html`<span class="text-tg-hint"> · Deck ${deck}</span>` : "";
 
   if (isGty && hidden) {
     return html`
@@ -205,7 +215,7 @@ function Stateroom({ booking, detailed }) {
         <span>🛏</span>
         <span class="line-through opacity-50">GTY</span>
         <span aria-hidden="true">→</span>
-        <span class="font-semibold">${hidden}</span>
+        <span class="font-semibold">${hidden}</span>${deckTag}
         <span class="text-tg-hint">${detailed
           ? "· assigned cabin (Royal still shows GTY)"
           : "· assigned"}</span>
@@ -216,7 +226,7 @@ function Stateroom({ booking, detailed }) {
       ? html` <span class="text-tg-hint">· cabin not assigned yet</span>`
       : ""}</span>`;
   }
-  return html`<span>🛏 Cabin <span class="font-semibold">${displayed || hidden}</span></span>`;
+  return html`<span>🛏 Cabin <span class="font-semibold">${displayed || hidden}</span>${deckTag}</span>`;
 }
 
 function BookingsList({ bookings, onOpen, onRefresh }) {
