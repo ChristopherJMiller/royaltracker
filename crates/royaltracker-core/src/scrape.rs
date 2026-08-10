@@ -150,10 +150,12 @@ pub async fn run_scrape_cycle(
         let catalog_entry = catalog_index
             .get(&(w.reservation_id.clone(), w.product_code.clone()));
         let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
+        let itinerary = itinerary_label(booking);
         let context = DiffContext {
             label: &label,
             diff: &diff,
             msrp_label,
+            itinerary: Some(&itinerary),
         };
 
         let mut any_sent = false;
@@ -186,6 +188,29 @@ pub async fn run_scrape_cycle(
         diffs_detected,
         diffs_notified,
     }
+}
+
+/// Human label for the sailing a price alert belongs to, e.g.
+/// "Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434". Prefers the
+/// recovered GTY cabin when we have one, otherwise the displayed stateroom
+/// (rendered as "GTY" while unassigned).
+fn itinerary_label(b: &Booking) -> String {
+    let ship = royaltracker_types::ship_name(&b.ship_code).unwrap_or(b.ship_code.as_str());
+    let mut s = ship.to_string();
+    if let Some(n) = b.nights {
+        s.push_str(&format!(" · {n} night{}", if n == 1 { "" } else { "s" }));
+    }
+    s.push_str(&format!(" · {}", b.sail_date.format("%b %-d, %Y")));
+    if let Some(cabin) = b.assigned_stateroom.as_deref() {
+        s.push_str(&format!(" · cabin {cabin} (assigned)"));
+    } else if let Some(room) = b.stateroom.as_deref() {
+        if room == "GTY" {
+            s.push_str(" · GTY");
+        } else {
+            s.push_str(&format!(" · cabin {room}"));
+        }
+    }
+    s
 }
 
 fn into_snapshot(watched_id: i64, p: &ProductPrice) -> PriceSnapshot {

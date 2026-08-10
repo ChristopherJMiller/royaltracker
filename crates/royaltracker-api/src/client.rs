@@ -1,6 +1,7 @@
 use crate::graphql::{fetch_categories, fetch_products_in_category, Category, GraphqlProduct};
 use royaltracker_types::Brand;
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, instrument};
@@ -319,6 +320,197 @@ impl CruiseClient {
         let raw: serde_json::Value = resp.json().await?;
         Ok(ProductPrice::from_raw(raw))
     }
+
+    /// Authenticated GET returning raw JSON. Shared by the order-history calls.
+    async fn get_json(&self, url: &str) -> Result<serde_json::Value, ApiError> {
+        let token = self.ensure_token().await?;
+        let mut req = self.http.get(url);
+        for (k, v) in self.auth_headers(&token) {
+            req = req.header(k, v);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        Ok(resp.json().await?)
+    }
+
+    /// Order-history summary for a reservation (`payload.myOrders[...]` plus
+    /// `ordersOthersHaveBookedForMe`). Each purchased add-on (excursion, dining,
+    /// drink package…) is stamped with the guest's *currently assigned* physical
+    /// cabin — which is how the real room leaks even while the booking still
+    /// shows "GTY". `sail_date_yyyymmdd` is the wire format with no dashes.
+    pub async fn fetch_order_history(
+        &self,
+        brand: Brand,
+        ship_code: &str,
+        sail_date_yyyymmdd: &str,
+        passenger_id: &str,
+        reservation_id: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let url = format!(
+            "https://{api}/en/{seg}/web/commerce-api/calendar/v1/{ship}/orderHistory?passengerId={pax}&reservationId={res}&sailingId={ship}{sail}&currencyIso=USD&includeMedia=false",
+            api = brand.api_host(),
+            seg = brand.url_segment(),
+            ship = ship_code,
+            pax = passenger_id,
+            res = reservation_id,
+            sail = sail_date_yyyymmdd,
+        );
+        self.get_json(&url).await
+    }
+
+    /// Full detail for a single order (`payload.orderHistoryDetailItems[...]`),
+    /// whose per-guest records carry `stateroomNumber`.
+    pub async fn fetch_order_detail(
+        &self,
+        brand: Brand,
+        ship_code: &str,
+        sail_date_yyyymmdd: &str,
+        order_code: &str,
+        passenger_id: &str,
+        reservation_id: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let url = format!(
+            "https://{api}/en/{seg}/web/commerce-api/calendar/v1/{ship}/orderHistory/{order}?passengerId={pax}&reservationId={res}&sailingId={ship}{sail}&currencyIso=USD&includeMedia=false",
+            api = brand.api_host(),
+            seg = brand.url_segment(),
+            ship = ship_code,
+            order = order_code,
+            pax = passenger_id,
+            res = reservation_id,
+            sail = sail_date_yyyymmdd,
+        );
+        self.get_json(&url).await
+    }
+
+    /// Recover the *actually assigned* cabin behind a "GTY" booking.
+    ///
+    /// Walks the reservation's purchased add-on orders and reads the physical
+    /// `stateroomNumber` stamped on the guest records — filtered to the
+    /// reservation's *own* passengers (`own_passenger_ids`), because group/shared
+    /// orders (e.g. a show booked for several cabins) list guests across multiple
+    /// rooms. Stops at the first order that yields a single unambiguous room.
+    /// Returns `None` when nothing leaks it (e.g. no add-ons purchased yet).
+    #[instrument(skip(self, own_passenger_ids))]
+    pub async fn discover_assigned_stateroom(
+        &self,
+        brand: Brand,
+        ship_code: &str,
+        sail_date_yyyymmdd: &str,
+        reservation_id: &str,
+        query_passenger_id: &str,
+        own_passenger_ids: &HashSet<String>,
+    ) -> Result<Option<String>, ApiError> {
+        let hist = self
+            .fetch_order_history(
+                brand,
+                ship_code,
+                sail_date_yyyymmdd,
+                query_passenger_id,
+                reservation_id,
+            )
+            .await?;
+
+        let mut order_codes: Vec<String> = Vec::new();
+        if let Some(payload) = hist.get("payload") {
+            for key in ["myOrders", "ordersOthersHaveBookedForMe"] {
+                if let Some(arr) = payload.get(key).and_then(|v| v.as_array()) {
+                    for o in arr {
+                        if let Some(code) = o.get("orderCode").and_then(|v| v.as_str()) {
+                            order_codes.push(code.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tally rooms seen for our own passengers across order details. The cheap,
+        // common path exits after the first detail: a single cabin's own guests
+        // can only carry one room.
+        let mut tally: HashMap<String, u32> = HashMap::new();
+        for code in order_codes {
+            let detail = match self
+                .fetch_order_detail(
+                    brand,
+                    ship_code,
+                    sail_date_yyyymmdd,
+                    &code,
+                    query_passenger_id,
+                    reservation_id,
+                )
+                .await
+            {
+                Ok(d) => d,
+                Err(e) => {
+                    debug!(order = %code, error = %e, "order detail failed; skipping");
+                    continue;
+                }
+            };
+            collect_own_rooms(&detail, own_passenger_ids, &mut tally);
+            if tally.len() == 1 {
+                return Ok(tally.into_keys().next());
+            }
+        }
+
+        // Ambiguous (details disagreed) or empty: prefer the most-seen room.
+        Ok(tally
+            .into_iter()
+            .max_by_key(|(_, n)| *n)
+            .map(|(room, _)| room))
+    }
+}
+
+/// Coerce a JSON id (string or number) to a `String` so passenger ids from
+/// different endpoints compare equal regardless of wire type.
+fn json_id(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Add every real cabin found on an order-detail's guests that belong to our own
+/// reservation to `tally`. Ignores placeholder rooms ("GTY"/"NONE"/blank).
+fn collect_own_rooms(
+    detail: &serde_json::Value,
+    own: &HashSet<String>,
+    tally: &mut HashMap<String, u32>,
+) {
+    let Some(items) = detail
+        .pointer("/payload/orderHistoryDetailItems")
+        .and_then(|v| v.as_array())
+    else {
+        return;
+    };
+    for item in items {
+        let Some(guests) = item.get("guests").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for g in guests {
+            let Some(id) = g.get("id").and_then(json_id) else {
+                continue;
+            };
+            if !own.contains(&id) {
+                continue;
+            }
+            if let Some(room) = g.get("stateroomNumber").and_then(|v| v.as_str()) {
+                let room = room.trim();
+                if !room.is_empty()
+                    && !room.eq_ignore_ascii_case("GTY")
+                    && !room.eq_ignore_ascii_case("NONE")
+                {
+                    *tally.entry(room.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -348,4 +540,37 @@ pub struct BookingSummary {
     pub package_code: Option<String>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl BookingSummary {
+    /// Stateroom as RCG displays it: a real cabin once assigned, or `"GTY"` while
+    /// a guarantee cabin is unassigned. Lives in the flattened `extra` map.
+    pub fn stateroom(&self) -> Option<String> {
+        self.extra
+            .get("stateroomNumber")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    /// True when the displayed stateroom is the "GTY" placeholder.
+    pub fn is_gty(&self) -> bool {
+        self.stateroom().as_deref() == Some("GTY")
+    }
+
+    /// Passenger ids belonging to *this* reservation, from `passengersInStateroom`
+    /// (falling back to `passengers`). Used to filter guests on shared orders down
+    /// to the ones that reveal this cabin's assignment.
+    pub fn own_passenger_ids(&self) -> HashSet<String> {
+        let mut ids = HashSet::new();
+        for key in ["passengersInStateroom", "passengers"] {
+            if let Some(arr) = self.extra.get(key).and_then(|v| v.as_array()) {
+                for g in arr {
+                    if let Some(id) = g.get("passengerId").and_then(json_id) {
+                        ids.insert(id);
+                    }
+                }
+            }
+        }
+        ids
+    }
 }

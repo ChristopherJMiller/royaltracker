@@ -85,6 +85,77 @@ pub struct Booking {
     pub passenger_id: Option<String>,
     pub nights: Option<i32>,
     pub package_code: Option<String>,
+    /// Stateroom as RCG *displays* it: a real cabin number once assigned, or the
+    /// literal `"GTY"` while a guarantee cabin is still unassigned. `None` when
+    /// we haven't discovered it yet.
+    #[serde(default)]
+    pub stateroom: Option<String>,
+    /// The physical cabin a `"GTY"` booking is *currently* assigned to
+    /// internally, recovered from purchased add-on order records (the room leaks
+    /// through the guest records on excursions/dining even while the booking
+    /// still shows "GTY"). `Some` only when [`Self::stateroom`] is `"GTY"` and at
+    /// least one order leaked the room; `None` otherwise.
+    #[serde(default)]
+    pub assigned_stateroom: Option<String>,
+}
+
+impl Booking {
+    /// True when the booking is a guarantee cabin still showing "GTY".
+    pub fn is_gty(&self) -> bool {
+        self.stateroom.as_deref() == Some("GTY")
+    }
+}
+
+/// Map a two-letter ship code to its full name. Kept in sync with the `SHIP_NAMES`
+/// table in the web Mini App (`static/app.js`). Returns `None` for unknown codes
+/// so callers can fall back to the raw code.
+pub fn ship_name(code: &str) -> Option<&'static str> {
+    let name = match code {
+        // Celebrity
+        "AS" => "Celebrity Ascent",
+        "AX" => "Celebrity Apex",
+        "BE" => "Celebrity Beyond",
+        "EC" => "Celebrity Eclipse",
+        "ED" => "Celebrity Edge",
+        "EQ" => "Celebrity Equinox",
+        "IN" => "Celebrity Infinity",
+        "MI" => "Celebrity Millennium",
+        "RF" => "Celebrity Reflection",
+        "SI" => "Celebrity Silhouette",
+        "SL" => "Celebrity Solstice",
+        "SU" => "Celebrity Summit",
+        "XC" => "Celebrity Xcel",
+        // Royal Caribbean
+        "AD" => "Adventure of the Seas",
+        "AL" => "Allure of the Seas",
+        "AN" => "Anthem of the Seas",
+        "BR" => "Brilliance of the Seas",
+        "EN" => "Enchantment of the Seas",
+        "EP" => "Explorer of the Seas",
+        "FR" => "Freedom of the Seas",
+        "GR" => "Grandeur of the Seas",
+        "HM" => "Harmony of the Seas",
+        "IC" => "Icon of the Seas",
+        "JW" => "Jewel of the Seas",
+        "LB" => "Liberty of the Seas",
+        "MA" => "Mariner of the Seas",
+        "NV" => "Navigator of the Seas",
+        "OA" => "Oasis of the Seas",
+        "OD" => "Odyssey of the Seas",
+        "OV" => "Ovation of the Seas",
+        "QN" => "Quantum of the Seas",
+        "RD" => "Radiance of the Seas",
+        "RH" => "Rhapsody of the Seas",
+        "SP" => "Spectrum of the Seas",
+        "SR" => "Star of the Seas",
+        "SY" => "Symphony of the Seas",
+        "UT" => "Utopia of the Seas",
+        "VS" => "Vision of the Seas",
+        "VY" => "Voyager of the Seas",
+        "WN" => "Wonder of the Seas",
+        _ => return None,
+    };
+    Some(name)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

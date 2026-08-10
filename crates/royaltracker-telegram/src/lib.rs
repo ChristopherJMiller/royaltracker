@@ -22,6 +22,10 @@ pub struct DiffContext<'a> {
     /// Formatted MSRP/base price string from catalog_cache, e.g. "$135.00".
     /// Used to render "X% off MSRP $Y".
     pub msrp_label: Option<&'a str>,
+    /// Which sailing this price is for, e.g.
+    /// "Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434". Rendered as a
+    /// subtitle so alerts across multiple bookings are distinguishable at a glance.
+    pub itinerary: Option<&'a str>,
 }
 
 pub async fn send_diff(bot: &Bot, chat_id: i64, ctx: &DiffContext<'_>) -> Result<(), TelegramError> {
@@ -31,12 +35,16 @@ pub async fn send_diff(bot: &Bot, chat_id: i64, ctx: &DiffContext<'_>) -> Result
     let new_p = format!("${:.2}", ctx.diff.new_price);
     let old_p = format!("${:.2}", ctx.diff.old_price);
     let pct = format!("{:+.1}%", ctx.diff.delta_pct);
-    let mut text = format!(
-        "{arrow} *{label}*\n*{new}* — was {old} \\({pct}\\)",
+    let mut text = format!("{arrow} *{label}*");
+    if let Some(itin) = ctx.itinerary {
+        text.push_str(&format!("\n🚢 {}", escape_md_v2(itin)));
+    }
+    text.push_str(&format!(
+        "\n*{new}* — was {old} \\({pct}\\)",
         new = escape_md_v2(&new_p),
         old = escape_md_v2(&old_p),
         pct = escape_md_v2(&pct),
-    );
+    ));
 
     if let Some(msrp_label) = ctx.msrp_label {
         if let Some(msrp_val) = parse_money(msrp_label) {

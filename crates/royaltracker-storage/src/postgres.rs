@@ -40,6 +40,8 @@ fn row_to_booking(r: &PgRow) -> Result<Booking, sqlx::Error> {
         passenger_id: r.try_get("passenger_id")?,
         nights: r.try_get("nights")?,
         package_code: r.try_get("package_code")?,
+        stateroom: r.try_get("stateroom")?,
+        assigned_stateroom: r.try_get("assigned_stateroom")?,
     })
 }
 
@@ -138,8 +140,8 @@ impl PriceRepo for PostgresRepo {
         sqlx::query(
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
-                                  passenger_id, nights, package_code)
-            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8)
+                                  passenger_id, nights, package_code, stateroom, assigned_stateroom)
+            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (reservation_id) DO UPDATE SET
                 brand = EXCLUDED.brand,
                 account_id = EXCLUDED.account_id,
@@ -148,6 +150,10 @@ impl PriceRepo for PostgresRepo {
                 passenger_id = EXCLUDED.passenger_id,
                 nights = EXCLUDED.nights,
                 package_code = EXCLUDED.package_code,
+                stateroom = EXCLUDED.stateroom,
+                -- Keep a previously-discovered cabin if this refresh couldn't find one
+                -- (e.g. transient order-history error), rather than blanking it out.
+                assigned_stateroom = COALESCE(EXCLUDED.assigned_stateroom, bookings.assigned_stateroom),
                 updated_at = now()
             "#,
         )
@@ -159,6 +165,8 @@ impl PriceRepo for PostgresRepo {
         .bind(&b.passenger_id)
         .bind(b.nights)
         .bind(&b.package_code)
+        .bind(&b.stateroom)
+        .bind(&b.assigned_stateroom)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -167,7 +175,7 @@ impl PriceRepo for PostgresRepo {
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT reservation_id, brand::text AS brand, account_id, ship_code,
-                      sail_date, passenger_id, nights, package_code
+                      sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom
                FROM bookings ORDER BY sail_date"#,
         )
         .fetch_all(&self.pool)
@@ -178,7 +186,8 @@ impl PriceRepo for PostgresRepo {
     async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand::text AS brand, b.account_id, b.ship_code,
-                      b.sail_date, b.passenger_id, b.nights, b.package_code
+                      b.sail_date, b.passenger_id, b.nights, b.package_code,
+                      b.stateroom, b.assigned_stateroom
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = $1

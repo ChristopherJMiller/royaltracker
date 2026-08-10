@@ -220,6 +220,11 @@ pub struct BookingDto {
     pub sail_date: chrono::NaiveDate,
     pub nights: Option<i32>,
     pub package_code: Option<String>,
+    /// Stateroom as RCG displays it: a real cabin, or "GTY" while unassigned.
+    pub stateroom: Option<String>,
+    /// The real cabin a "GTY" booking is currently assigned to, recovered from
+    /// purchased-order records. Present only for GTY bookings we could resolve.
+    pub assigned_stateroom: Option<String>,
     /// Other royaltracker users subscribed to the same reservation (i.e.
     /// partners/family on the same cruise). Excludes the caller. Empty when
     /// the booking is solo. Each entry's `display` is the safest non-PII
@@ -264,6 +269,8 @@ pub async fn list_bookings(
             sail_date: b.sail_date,
             nights: b.nights,
             package_code: b.package_code,
+            stateroom: b.stateroom,
+            assigned_stateroom: b.assigned_stateroom,
             shared_with,
         });
     }

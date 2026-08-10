@@ -26,6 +26,7 @@ async fn main() -> anyhow::Result<()> {
         label: "Deluxe Beverage Package (Adult)",
         diff: &diff,
         msrp_label: Some("$135.00"),
+        itinerary: Some("Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434 (assigned)"),
     };
     send_diff(&b, chat_id, &ctx).await?;
     println!("sent test alert to chat {chat_id}");

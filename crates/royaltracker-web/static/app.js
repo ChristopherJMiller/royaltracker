@@ -189,6 +189,36 @@ function RegisterForm({ onRegistered }) {
     </section>`;
 }
 
+// Displayed vs "hidden" stateroom. For a guarantee (GTY) booking we surface the
+// real cabin the reservation is currently assigned to — recovered from the
+// order records even though Royal still shows "GTY". `detailed` adds an
+// explanatory aside on the booking screen; the list card stays terse.
+function Stateroom({ booking, detailed }) {
+  const displayed = booking.stateroom;             // "GTY" | "12169" | null
+  const hidden = booking.assigned_stateroom;       // "10601" | null
+  if (!displayed && !hidden) return null;
+  const isGty = displayed === "GTY" || (!displayed && !!hidden);
+
+  if (isGty && hidden) {
+    return html`
+      <span class="inline-flex items-center gap-1 flex-wrap">
+        <span>🛏</span>
+        <span class="line-through opacity-50">GTY</span>
+        <span aria-hidden="true">→</span>
+        <span class="font-semibold">${hidden}</span>
+        <span class="text-tg-hint">${detailed
+          ? "· assigned cabin (Royal still shows GTY)"
+          : "· assigned"}</span>
+      </span>`;
+  }
+  if (isGty) {
+    return html`<span>🛏 <span class="opacity-70">GTY</span>${detailed
+      ? html` <span class="text-tg-hint">· cabin not assigned yet</span>`
+      : ""}</span>`;
+  }
+  return html`<span>🛏 Cabin <span class="font-semibold">${displayed || hidden}</span></span>`;
+}
+
 function BookingsList({ bookings, onOpen, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshLabel, setRefreshLabel] = useState("↻ Refresh");
@@ -230,6 +260,8 @@ function BookingsList({ bookings, onOpen, onRefresh }) {
                     <div class="text-sm text-tg-hint">
                       ${[b.nights && `${b.nights} night${b.nights === 1 ? "" : "s"}`, fmtSailDate(b.sail_date)].filter(Boolean).join(" · ")}
                     </div>
+                    ${(b.stateroom || b.assigned_stateroom) &&
+                      html`<div class="text-xs mt-0.5"><${Stateroom} booking=${b} /></div>`}
                   </div>
                   <div class="text-right">
                     <div class="text-xs text-tg-hint">${brandLabel(b.brand)}</div>
@@ -265,6 +297,9 @@ function BookingHeader({ booking }) {
         </div>
         <div class="text-xs text-tg-hint">${brandLabel(booking.brand)}</div>
       </div>
+      ${(booking.stateroom || booking.assigned_stateroom)
+        ? html`<div class="text-sm pt-1"><${Stateroom} booking=${booking} detailed=${true} /></div>`
+        : null}
       ${shared ? html`<div class="text-xs text-tg-hint pt-1">${shared}</div>` : null}
     </div>`;
 }

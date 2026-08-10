@@ -79,11 +79,16 @@ pub async fn discover_with_clients(
         };
 
         for summary in summaries {
-            let Some(reservation_id) = summary.reservation_id else {
+            let Some(reservation_id) = summary.reservation_id.clone() else {
                 continue;
             };
-            let ship_code = summary.ship_code.unwrap_or_default();
-            let passenger_id = summary.primary_passenger_id;
+            let displayed_stateroom = summary.stateroom();
+            let is_gty = summary.is_gty();
+            let own_pax_ids = summary.own_passenger_ids();
+            // Wire-format sail date (YYYYMMDD) as the API wants it for order history.
+            let sail_wire = summary.sail_date.clone();
+            let ship_code = summary.ship_code.clone().unwrap_or_default();
+            let passenger_id = summary.primary_passenger_id.clone();
             let sail_date = summary
                 .sail_date
                 .as_ref()
@@ -94,6 +99,38 @@ pub async fn discover_with_clients(
                 })
                 .unwrap_or_else(|| chrono::Utc::now().date_naive());
 
+            // For guarantee cabins, recover the real assigned room from the
+            // reservation's purchased-order records (the room leaks there even
+            // while the booking still displays "GTY"). Best-effort: a failure
+            // just leaves the cabin undiscovered this cycle.
+            let assigned_stateroom = match (is_gty, passenger_id.as_deref(), sail_wire.as_deref()) {
+                (true, Some(pax), Some(sail)) if !own_pax_ids.is_empty() => {
+                    match client
+                        .discover_assigned_stateroom(
+                            brand,
+                            &ship_code,
+                            sail,
+                            &reservation_id,
+                            pax,
+                            &own_pax_ids,
+                        )
+                        .await
+                    {
+                        Ok(room) => {
+                            if let Some(r) = &room {
+                                info!(reservation = %reservation_id, cabin = %r, "recovered GTY cabin");
+                            }
+                            room
+                        }
+                        Err(e) => {
+                            warn!(reservation = %reservation_id, error = %e, "assigned-stateroom discovery failed");
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
+
             let booking = Booking {
                 reservation_id: reservation_id.clone(),
                 brand,
@@ -103,6 +140,8 @@ pub async fn discover_with_clients(
                 passenger_id,
                 nights: summary.number_of_nights,
                 package_code: summary.package_code,
+                stateroom: displayed_stateroom,
+                assigned_stateroom,
             };
 
             if let Err(e) = repo.upsert_booking(&booking).await {
