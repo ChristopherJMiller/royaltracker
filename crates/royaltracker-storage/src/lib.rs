@@ -11,7 +11,9 @@ mod sqlite;
 #[cfg(feature = "postgres")]
 mod postgres;
 
-pub use repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo};
+pub use repo::{
+    CatalogEntry, DeckPlan, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo,
+};
 
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteRepo as DefaultRepo;

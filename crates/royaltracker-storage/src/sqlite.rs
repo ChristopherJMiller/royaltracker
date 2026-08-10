@@ -5,7 +5,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
-use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo};
+use crate::repo::{
+    CatalogEntry, DeckPlan, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo,
+};
 
 #[derive(Clone)]
 pub struct SqliteRepo {
@@ -516,6 +518,50 @@ impl PriceRepo for SqliteRepo {
                 })
             })
             .collect()
+    }
+
+    async fn get_deck_plan(
+        &self,
+        ship_code: &str,
+        deck: i32,
+    ) -> Result<Option<DeckPlan>, StorageError> {
+        let row = sqlx::query(
+            "SELECT ship_code, deck, image_url, sourced_at FROM deck_plans WHERE ship_code = ?1 AND deck = ?2",
+        )
+        .bind(ship_code)
+        .bind(deck)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| {
+            let s: String = r.try_get("sourced_at")?;
+            Ok::<_, StorageError>(DeckPlan {
+                ship_code: r.try_get("ship_code")?,
+                deck: r.try_get("deck")?,
+                image_url: r.try_get("image_url")?,
+                sourced_at: DateTime::parse_from_rfc3339(&s)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?
+                    .with_timezone(&Utc),
+            })
+        })
+        .transpose()
+    }
+
+    async fn upsert_deck_plan(&self, dp: &DeckPlan) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"INSERT INTO deck_plans (ship_code, deck, image_url, sourced_at)
+               VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(ship_code, deck) DO UPDATE SET
+                   image_url = excluded.image_url,
+                   sourced_at = excluded.sourced_at"#,
+        )
+        .bind(&dp.ship_code)
+        .bind(dp.deck)
+        .bind(&dp.image_url)
+        .bind(dp.sourced_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 

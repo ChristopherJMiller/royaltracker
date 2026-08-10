@@ -4,7 +4,9 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Row};
 use std::str::FromStr;
 
-use crate::repo::{CatalogEntry, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo};
+use crate::repo::{
+    CatalogEntry, DeckPlan, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo,
+};
 
 #[derive(Clone)]
 pub struct PostgresRepo {
@@ -516,6 +518,47 @@ impl PriceRepo for PostgresRepo {
                 })
             })
             .collect()
+    }
+
+    async fn get_deck_plan(
+        &self,
+        ship_code: &str,
+        deck: i32,
+    ) -> Result<Option<DeckPlan>, StorageError> {
+        let row = sqlx::query(
+            "SELECT ship_code, deck, image_url, sourced_at FROM deck_plans WHERE ship_code = $1 AND deck = $2",
+        )
+        .bind(ship_code)
+        .bind(deck)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(match row {
+            Some(r) => Some(DeckPlan {
+                ship_code: r.try_get("ship_code")?,
+                deck: r.try_get("deck")?,
+                image_url: r.try_get("image_url")?,
+                sourced_at: r.try_get("sourced_at")?,
+            }),
+            None => None,
+        })
+    }
+
+    async fn upsert_deck_plan(&self, dp: &DeckPlan) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"INSERT INTO deck_plans (ship_code, deck, image_url, sourced_at)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (ship_code, deck) DO UPDATE SET
+                   image_url = EXCLUDED.image_url,
+                   sourced_at = EXCLUDED.sourced_at"#,
+        )
+        .bind(&dp.ship_code)
+        .bind(dp.deck)
+        .bind(&dp.image_url)
+        .bind(dp.sourced_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 

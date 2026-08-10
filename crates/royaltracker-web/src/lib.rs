@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/watched/:id", delete(handlers::remove_watched))
         .route("/api/watched/:id/alert", put(handlers::set_alert))
         .route("/api/history/:watched_id", get(handlers::history))
+        .route("/api/deckplan", get(handlers::deck_plan))
         // Static frontend (catch-all so deep links work)
         .fallback(static_assets::serve)
         .layer(CompressionLayer::new().gzip(true))

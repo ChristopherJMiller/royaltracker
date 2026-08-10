@@ -99,6 +99,23 @@ pub trait PriceRepo: Send + Sync + 'static {
         watched_id: i64,
         limit: i64,
     ) -> Result<Vec<HistoryPoint>, StorageError>;
+
+    // --- deck-plan image cache ---
+    async fn get_deck_plan(
+        &self,
+        ship_code: &str,
+        deck: i32,
+    ) -> Result<Option<DeckPlan>, StorageError>;
+    async fn upsert_deck_plan(&self, dp: &DeckPlan) -> Result<(), StorageError>;
+}
+
+/// A resolved cruisedeckplans deck-plan image for a ship + deck.
+#[derive(Debug, Clone)]
+pub struct DeckPlan {
+    pub ship_code: String,
+    pub deck: i32,
+    pub image_url: String,
+    pub sourced_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone)]

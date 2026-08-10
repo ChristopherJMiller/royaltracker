@@ -464,6 +464,64 @@ impl CruiseClient {
             .max_by_key(|(_, n)| *n)
             .map(|(room, _)| room))
     }
+
+    /// Resolve the cruisedeckplans deck-plan image URL for a ship + deck.
+    ///
+    /// Anonymous scrape of the public `deckbydeck.php` page: pulls the main
+    /// `<img name="deckpic" src="...">` and resolves it to an absolute URL. The
+    /// filename carries a per-ship version tag we can't predict, so we read it
+    /// off the page (callers cache the result — deck plans never change).
+    /// Returns `None` if the page or image can't be found.
+    pub async fn fetch_deck_image_url(
+        &self,
+        ship_slug: &str,
+        deck: u16,
+    ) -> Result<Option<String>, ApiError> {
+        let page = format!(
+            "https://www.cruisedeckplans.com/ships/deckbydeck.php?ship={ship_slug}&deck={deck}"
+        );
+        let resp = self
+            .http
+            .get(&page)
+            .header("User-Agent", &self.cfg.user_agent)
+            .header(
+                "Referer",
+                format!("https://www.cruisedeckplans.com/ships/{ship_slug}"),
+            )
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+        let html = resp.text().await?;
+        let Some(rel) = extract_deckpic_src(&html) else {
+            return Ok(None);
+        };
+        // Resolve the relative "../DP/ships/.../deckN-ver.webp" against the page.
+        let abs = url::Url::parse(&page)
+            .ok()
+            .and_then(|base| base.join(&rel).ok())
+            .map(|u| u.to_string());
+        Ok(abs)
+    }
+}
+
+/// Pull the `src` of the main deck-plan image
+/// (`<img name="deckpic" ... src="...">`) out of a cruisedeckplans deck page.
+/// Matches the double-quoted `src` attribute, not the single-quoted `.gif`
+/// fallback inside the `onerror` handler.
+fn extract_deckpic_src(html: &str) -> Option<String> {
+    let anchor = html.find("name=\"deckpic\"")?;
+    let start = html[..anchor].rfind("<img")?;
+    let rel_end = html[start..].find('>')?;
+    let tag = &html[start..start + rel_end];
+    let s = tag.find("src=\"")? + "src=\"".len();
+    let e = tag[s..].find('"')?;
+    Some(tag[s..s + e].to_string())
 }
 
 /// Coerce a JSON id (string or number) to a `String` so passenger ids from

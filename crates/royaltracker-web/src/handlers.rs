@@ -1,7 +1,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use royaltracker_storage::{CatalogEntry, HistoryPoint, PriceRepo};
+use royaltracker_storage::{CatalogEntry, DeckPlan, HistoryPoint, PriceRepo};
 use royaltracker_types::AlertMode;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -562,4 +562,78 @@ pub async fn history(
         .await
         .map_err(db_err)?;
     Ok(Json(points))
+}
+
+#[derive(Deserialize)]
+pub struct DeckPlanQuery {
+    /// Two-letter ship code (e.g. "WN").
+    pub ship: String,
+    pub deck: i32,
+}
+
+#[derive(Serialize)]
+pub struct DeckPlanResponse {
+    /// Absolute cruisedeckplans image URL (hotlinked by the client, not rehosted).
+    pub image_url: String,
+    /// The deck page on cruisedeckplans, for attribution / "open full".
+    pub source_url: String,
+}
+
+/// Resolve the deck-plan image for a ship + deck, cached after first lookup.
+/// On a cache miss we do one anonymous scrape of cruisedeckplans to read the
+/// versioned image filename, then persist it.
+pub async fn deck_plan(
+    State(s): State<Arc<AppState>>,
+    _user: AuthedUser,
+    Query(q): Query<DeckPlanQuery>,
+) -> Result<Json<DeckPlanResponse>, ApiError> {
+    if !(1..=25).contains(&q.deck) {
+        return Err((StatusCode::BAD_REQUEST, "invalid deck".into()));
+    }
+    let Some(name) = royaltracker_types::ship_name(&q.ship) else {
+        return Err((StatusCode::NOT_FOUND, "unknown ship".into()));
+    };
+    let slug = name.replace(' ', "-");
+    let source_url = format!(
+        "https://www.cruisedeckplans.com/ships/deckbydeck.php?ship={slug}&deck={}",
+        q.deck
+    );
+
+    // Deck plans never change, so a cached URL is authoritative.
+    if let Some(dp) = s.repo.get_deck_plan(&q.ship, q.deck).await.map_err(db_err)? {
+        return Ok(Json(DeckPlanResponse {
+            image_url: dp.image_url,
+            source_url,
+        }));
+    }
+
+    // Cache miss: anonymous scrape (appkey-only client, no user creds needed).
+    let client = CruiseClient::new(CruiseClientConfig::web(
+        Brand::Royal,
+        String::new(),
+        String::new(),
+        s.rcg_basic_auth_b64.as_ref().clone(),
+    ))
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("client: {e}")))?;
+
+    let image_url = client
+        .fetch_deck_image_url(&slug, q.deck as u16)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("deckplan: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "deck plan not found".to_string()))?;
+
+    let dp = DeckPlan {
+        ship_code: q.ship.clone(),
+        deck: q.deck,
+        image_url: image_url.clone(),
+        sourced_at: Utc::now(),
+    };
+    if let Err(e) = s.repo.upsert_deck_plan(&dp).await {
+        tracing::warn!(error = %e, "deck_plan cache upsert failed");
+    }
+
+    Ok(Json(DeckPlanResponse {
+        image_url,
+        source_url,
+    }))
 }

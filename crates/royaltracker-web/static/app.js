@@ -461,19 +461,35 @@ const openExternal = (url) => {
 };
 
 // Derived location facts for the booking's cabin (deck, height tier, hedged
-// notes) plus a deep-link into cruisedeckplans' deck plan for the cabin's deck —
-// where the real interactive plan lives. Rendered on the booking detail screen.
+// notes) plus the embedded deck plan for the cabin's deck (hotlinked from
+// cruisedeckplans, resolved via /api/deckplan) and photo/video search links.
 function LocationPanel({ booking }) {
+  const [showPlan, setShowPlan] = useState(false);
+  const [plan, setPlan] = useState(null);      // { image_url, source_url }
+  const [planErr, setPlanErr] = useState(null);
   if (!booking.deck) return null;
+
   const tier = booking.height_tier ? ` · ${booking.height_tier}` : "";
   const notes = booking.location_notes || [];
   const cabin = booking.assigned_stateroom
     || (booking.stateroom && booking.stateroom !== "GTY" ? booking.stateroom : null);
   const slug = cdpSlug(booking.ship_code);
-  const deckUrl = slug
-    ? `https://www.cruisedeckplans.com/ships/deckbydeck.php?ship=${slug}&deck=${booking.deck}`
-    : null;
   const shipUrl = slug ? `https://www.cruisedeckplans.com/ships/${slug}` : null;
+
+  async function togglePlan() {
+    const next = !showPlan;
+    setShowPlan(next);
+    if (next && !plan && !planErr) {
+      try {
+        setPlan(await api(`/api/deckplan?ship=${encodeURIComponent(booking.ship_code)}&deck=${booking.deck}`));
+      } catch (e) {
+        setPlanErr(e.message);
+      }
+    }
+  }
+
+  const imgSearch = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shipName(booking.ship_code) + (cabin ? " cabin " + cabin : " deck " + booking.deck + " stateroom"))}`;
+  const vidSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(shipName(booking.ship_code) + " deck " + booking.deck + " stateroom tour")}`;
 
   return html`
     <div class="bg-tg-secondary rounded-lg p-4 space-y-3">
@@ -485,26 +501,45 @@ function LocationPanel({ booking }) {
         <ul class="text-xs text-tg-hint space-y-1 list-disc list-inside">
           ${notes.map((n) => html`<li key=${n}>${n}</li>`)}
         </ul>`}
-      ${deckUrl && html`
+      ${slug && html`
         <div class="space-y-2 pt-1">
-          <button onClick=${() => openExternal(deckUrl)}
+          <button onClick=${togglePlan}
                   class="w-full bg-tg-button text-tg-btext rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90 transition">
-            🗺️ See deck ${booking.deck} plan${cabin ? ` — find cabin ${cabin}` : ""}
+            ${showPlan
+              ? "▲ Hide deck plan"
+              : `🗺️ Show deck ${booking.deck} plan${cabin ? ` — find cabin ${cabin}` : ""}`}
           </button>
-          <button onClick=${() => openExternal(shipUrl)} class="text-tg-link text-xs">
-            All ${shipName(booking.ship_code)} deck plans →
-          </button>
-          <p class="text-[10px] text-tg-hint pt-1">Deck plans via cruisedeckplans.com</p>
+          ${showPlan && html`
+            <div class="space-y-1">
+              ${planErr
+                ? html`<p class="text-xs text-red-500">Couldn't load deck plan: ${planErr}</p>`
+                : !plan
+                  ? html`<p class="text-xs text-tg-hint">Loading deck plan…</p>`
+                  : html`
+                    <div class="rounded-lg overflow-auto max-h-[28rem] bg-white border border-tg-hint/20">
+                      <img src=${plan.image_url} loading="lazy"
+                           alt=${`${shipName(booking.ship_code)} deck ${booking.deck}`}
+                           class="w-full h-auto" />
+                    </div>
+                    <p class="text-[10px] text-tg-hint">
+                      ${cabin ? `Find cabin ${cabin} on the plan. ` : ""}Deck plan ©
+                      <button onClick=${() => openExternal(plan.source_url)} class="text-tg-link underline">cruisedeckplans.com</button>
+                    </p>`}
+            </div>`}
+          ${shipUrl && html`
+            <button onClick=${() => openExternal(shipUrl)} class="text-tg-link text-xs">
+              All ${shipName(booking.ship_code)} deck plans →
+            </button>`}
         </div>`}
       ${slug && html`
         <div class="space-y-1">
           <h4 class="text-xs uppercase tracking-wide text-tg-hint">Photos & videos</h4>
           <div class="grid grid-cols-2 gap-2">
-            <button onClick=${() => openExternal(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shipName(booking.ship_code) + (cabin ? " cabin " + cabin : " deck " + booking.deck + " stateroom"))}`)}
+            <button onClick=${() => openExternal(imgSearch)}
                     class="bg-tg-bg rounded-lg px-3 py-2 text-xs font-medium hover:opacity-80 transition border border-tg-hint/20">
               📷 Room photos
             </button>
-            <button onClick=${() => openExternal(`https://www.youtube.com/results?search_query=${encodeURIComponent(shipName(booking.ship_code) + " deck " + booking.deck + " stateroom tour")}`)}
+            <button onClick=${() => openExternal(vidSearch)}
                     class="bg-tg-bg rounded-lg px-3 py-2 text-xs font-medium hover:opacity-80 transition border border-tg-hint/20">
               🎥 Video tours
             </button>
