@@ -447,14 +447,36 @@ function CatalogBrowser({ booking, catalog, onAdd, onRefreshCatalog }) {
     </div>`;
 }
 
+// cruisedeckplans uses the ship name hyphenated as its slug
+// (e.g. "Wonder-of-the-Seas", "Celebrity-Apex"). Only build links for ships we
+// can name; unknown codes get no (would-be-404) link.
+const cdpSlug = (shipCode) => {
+  const name = SHIP_NAMES[shipCode];
+  return name ? name.replace(/\s+/g, "-") : null;
+};
+const openExternal = (url) => {
+  if (!url) return;
+  if (tg?.openLink) tg.openLink(url);
+  else window.open(url, "_blank", "noopener");
+};
+
 // Derived location facts for the booking's cabin (deck, height tier, hedged
-// notes). Rendered on the booking detail screen; sets up the deck-plan view.
+// notes) plus a deep-link into cruisedeckplans' deck plan for the cabin's deck —
+// where the real interactive plan lives. Rendered on the booking detail screen.
 function LocationPanel({ booking }) {
   if (!booking.deck) return null;
   const tier = booking.height_tier ? ` · ${booking.height_tier}` : "";
   const notes = booking.location_notes || [];
+  const cabin = booking.assigned_stateroom
+    || (booking.stateroom && booking.stateroom !== "GTY" ? booking.stateroom : null);
+  const slug = cdpSlug(booking.ship_code);
+  const deckUrl = slug
+    ? `https://www.cruisedeckplans.com/ships/deckbydeck.php?ship=${slug}&deck=${booking.deck}`
+    : null;
+  const shipUrl = slug ? `https://www.cruisedeckplans.com/ships/${slug}` : null;
+
   return html`
-    <div class="bg-tg-secondary rounded-lg p-4 space-y-2">
+    <div class="bg-tg-secondary rounded-lg p-4 space-y-3">
       <div class="flex items-center justify-between">
         <h3 class="text-sm uppercase tracking-wide text-tg-hint">Location</h3>
         <span class="text-sm font-medium">🧭 Deck ${booking.deck}${tier}</span>
@@ -463,6 +485,17 @@ function LocationPanel({ booking }) {
         <ul class="text-xs text-tg-hint space-y-1 list-disc list-inside">
           ${notes.map((n) => html`<li key=${n}>${n}</li>`)}
         </ul>`}
+      ${deckUrl && html`
+        <div class="space-y-2 pt-1">
+          <button onClick=${() => openExternal(deckUrl)}
+                  class="w-full bg-tg-button text-tg-btext rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90 transition">
+            🗺️ See deck ${booking.deck} plan${cabin ? ` — find cabin ${cabin}` : ""}
+          </button>
+          <button onClick=${() => openExternal(shipUrl)} class="text-tg-link text-xs">
+            All ${shipName(booking.ship_code)} deck plans →
+          </button>
+          <p class="text-[10px] text-tg-hint pt-1">Deck plans via cruisedeckplans.com</p>
+        </div>`}
     </div>`;
 }
 
