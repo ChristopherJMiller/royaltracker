@@ -496,6 +496,20 @@ function LocationPanel({ booking }) {
           </button>
           <p class="text-[10px] text-tg-hint pt-1">Deck plans via cruisedeckplans.com</p>
         </div>`}
+      ${slug && html`
+        <div class="space-y-1">
+          <h4 class="text-xs uppercase tracking-wide text-tg-hint">Photos & videos</h4>
+          <div class="grid grid-cols-2 gap-2">
+            <button onClick=${() => openExternal(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shipName(booking.ship_code) + (cabin ? " cabin " + cabin : " deck " + booking.deck + " stateroom"))}`)}
+                    class="bg-tg-bg rounded-lg px-3 py-2 text-xs font-medium hover:opacity-80 transition border border-tg-hint/20">
+              📷 Room photos
+            </button>
+            <button onClick=${() => openExternal(`https://www.youtube.com/results?search_query=${encodeURIComponent(shipName(booking.ship_code) + " deck " + booking.deck + " stateroom tour")}`)}
+                    class="bg-tg-bg rounded-lg px-3 py-2 text-xs font-medium hover:opacity-80 transition border border-tg-hint/20">
+              🎥 Video tours
+            </button>
+          </div>
+        </div>`}
     </div>`;
 }
 
