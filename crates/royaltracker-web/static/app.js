@@ -447,6 +447,25 @@ function CatalogBrowser({ booking, catalog, onAdd, onRefreshCatalog }) {
     </div>`;
 }
 
+// Derived location facts for the booking's cabin (deck, height tier, hedged
+// notes). Rendered on the booking detail screen; sets up the deck-plan view.
+function LocationPanel({ booking }) {
+  if (!booking.deck) return null;
+  const tier = booking.height_tier ? ` · ${booking.height_tier}` : "";
+  const notes = booking.location_notes || [];
+  return html`
+    <div class="bg-tg-secondary rounded-lg p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm uppercase tracking-wide text-tg-hint">Location</h3>
+        <span class="text-sm font-medium">🧭 Deck ${booking.deck}${tier}</span>
+      </div>
+      ${notes.length > 0 && html`
+        <ul class="text-xs text-tg-hint space-y-1 list-disc list-inside">
+          ${notes.map((n) => html`<li key=${n}>${n}</li>`)}
+        </ul>`}
+    </div>`;
+}
+
 function BookingView({ booking, watched, catalog, onBack, onOpenWatched, refreshWatched, refreshCatalog }) {
   useBackButton(onBack, [booking.reservation_id]);
 
@@ -485,6 +504,7 @@ function BookingView({ booking, watched, catalog, onBack, onOpenWatched, refresh
     <section class="space-y-4">
       <button onClick=${onBack} class="text-tg-link text-sm">← All bookings</button>
       <${BookingHeader} booking=${booking} />
+      <${LocationPanel} booking=${booking} />
       <${WatchedList} watched=${watched} booking=${booking}
                       onOpen=${onOpenWatched} onRemove=${removeWatched} />
       <${CatalogBrowser} booking=${booking} catalog=${catalog}

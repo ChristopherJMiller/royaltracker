@@ -176,6 +176,96 @@ pub fn deck_of_cabin(cabin: &str) -> Option<u16> {
         .filter(|d| (1..=25).contains(d))
 }
 
+/// Relative height of a cabin within its ship's stateroom decks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeightTier {
+    Lower,
+    Middle,
+    Upper,
+}
+
+impl HeightTier {
+    pub fn label(self) -> &'static str {
+        match self {
+            HeightTier::Lower => "lower decks",
+            HeightTier::Middle => "mid-ship height",
+            HeightTier::Upper => "upper decks",
+        }
+    }
+}
+
+/// The stateroom deck range `(lowest, highest)` for a ship, by class. Only the
+/// classes we've confirmed are listed; unknown ships return `None` and callers
+/// degrade to deck-only. Ranges are coarse public facts used solely for a
+/// low/mid/high tier — deliberately not precise venue mapping.
+pub fn cabin_deck_range(ship_code: &str) -> Option<(u16, u16)> {
+    match ship_code {
+        // Oasis class
+        "WN" | "SY" | "HM" | "OA" | "AL" | "UT" => Some((3, 18)),
+        // Icon class
+        "IC" | "SR" => Some((5, 20)),
+        // Quantum / Quantum-Ultra class
+        "QN" | "AN" | "OV" | "SP" | "OD" => Some((3, 14)),
+        // Celebrity Edge class
+        "ED" | "AX" | "BE" | "AS" | "XC" => Some((3, 16)),
+        _ => None,
+    }
+}
+
+/// Derived, low-risk location facts for a cabin: its deck, a height tier (when
+/// we know the ship's deck range), and a few hedged human notes. Intentionally
+/// conservative — it never asserts a specific venue is above/below (that's the
+/// deck-plan view's job).
+#[derive(Debug, Clone)]
+pub struct CabinLocation {
+    pub deck: u16,
+    pub tier: Option<HeightTier>,
+    pub notes: Vec<String>,
+}
+
+pub fn cabin_location(ship_code: &str, cabin: &str) -> Option<CabinLocation> {
+    let deck = deck_of_cabin(cabin)?;
+    let range = cabin_deck_range(ship_code);
+    let tier = range.map(|(lo, hi)| {
+        let span = hi.saturating_sub(lo).max(1);
+        if deck <= lo + span / 3 {
+            HeightTier::Lower
+        } else if deck + span / 3 >= hi {
+            HeightTier::Upper
+        } else {
+            HeightTier::Middle
+        }
+    });
+
+    let mut notes = Vec::new();
+    match tier {
+        Some(HeightTier::Upper) => {
+            notes.push("Higher decks feel more ship motion in rough seas.".to_string())
+        }
+        Some(HeightTier::Lower) => {
+            notes.push("Lower decks feel the least ship motion.".to_string())
+        }
+        Some(HeightTier::Middle) => {
+            notes.push("Mid-height decks are a good motion compromise.".to_string())
+        }
+        None => {}
+    }
+    if let Some((lo, hi)) = range {
+        if deck >= hi {
+            notes.push(
+                "Top stateroom deck — check the deck above (often a pool, sports, or buffet deck) for early-morning noise."
+                    .to_string(),
+            );
+        } else if deck <= lo {
+            notes.push(
+                "Lowest stateroom deck — close to the waterline and usually steady.".to_string(),
+            );
+        }
+    }
+
+    Some(CabinLocation { deck, tier, notes })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertMode {
@@ -297,5 +387,33 @@ mod tests {
         assert_eq!(ship_name("WN"), Some("Wonder of the Seas"));
         assert_eq!(ship_name("AX"), Some("Celebrity Apex"));
         assert_eq!(ship_name("ZZ"), None);
+    }
+
+    #[test]
+    fn cabin_location_tiers() {
+        // Wonder (Oasis, decks 3-18): 9434 is mid-ship height.
+        let l = cabin_location("WN", "9434").unwrap();
+        assert_eq!(l.deck, 9);
+        assert_eq!(l.tier, Some(HeightTier::Middle));
+        assert!(!l.notes.is_empty());
+
+        // Deck 3 is the lowest stateroom deck → Lower + waterline note.
+        let low = cabin_location("WN", "3218").unwrap();
+        assert_eq!(low.tier, Some(HeightTier::Lower));
+        assert!(low.notes.iter().any(|n| n.contains("waterline")));
+    }
+
+    #[test]
+    fn cabin_location_unknown_ship_degrades_to_deck_only() {
+        // Unknown ship code → deck derived, but no tier/range-based notes.
+        let l = cabin_location("ZZ", "9434").unwrap();
+        assert_eq!(l.deck, 9);
+        assert_eq!(l.tier, None);
+        assert!(l.notes.is_empty());
+    }
+
+    #[test]
+    fn cabin_location_none_for_gty() {
+        assert!(cabin_location("WN", "GTY").is_none());
     }
 }

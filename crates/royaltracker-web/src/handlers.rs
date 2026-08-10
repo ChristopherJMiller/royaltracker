@@ -225,6 +225,14 @@ pub struct BookingDto {
     /// The real cabin a "GTY" booking is currently assigned to, recovered from
     /// purchased-order records. Present only for GTY bookings we could resolve.
     pub assigned_stateroom: Option<String>,
+    /// Deck derived from the effective (assigned or displayed) cabin, when known.
+    pub deck: Option<i32>,
+    /// Coarse height-tier label (e.g. "mid-ship height") when the ship's deck
+    /// range is known; null otherwise.
+    pub height_tier: Option<String>,
+    /// Hedged human location notes (motion, top/bottom-deck hints).
+    #[serde(default)]
+    pub location_notes: Vec<String>,
     /// Other royaltracker users subscribed to the same reservation (i.e.
     /// partners/family on the same cruise). Excludes the caller. Empty when
     /// the booking is solo. Each entry's `display` is the safest non-PII
@@ -262,6 +270,21 @@ pub async fn list_bookings(
                 display: s.telegram_username.map(|u| format!("@{u}")),
             })
             .collect();
+        // Derive location facts from the effective cabin (recovered GTY room, or
+        // the displayed room when it's a real number rather than "GTY").
+        let effective_cabin = b
+            .assigned_stateroom
+            .as_deref()
+            .or_else(|| b.stateroom.as_deref().filter(|r| *r != "GTY"));
+        let loc = effective_cabin.and_then(|c| royaltracker_types::cabin_location(&b.ship_code, c));
+        let (deck, height_tier, location_notes) = match loc {
+            Some(l) => (
+                Some(l.deck as i32),
+                l.tier.map(|t| t.label().to_string()),
+                l.notes,
+            ),
+            None => (None, None, Vec::new()),
+        };
         out.push(BookingDto {
             reservation_id: b.reservation_id,
             brand: b.brand.to_string(),
@@ -271,6 +294,9 @@ pub async fn list_bookings(
             package_code: b.package_code,
             stateroom: b.stateroom,
             assigned_stateroom: b.assigned_stateroom,
+            deck,
+            height_tier,
+            location_notes,
             shared_with,
         });
     }
