@@ -99,19 +99,22 @@ async fn main() -> Result<()> {
 async fn discover_for_user(
     repo: &DefaultRepo,
     cipher: &Cipher,
-    _bot: &Bot,
+    bot: &Bot,
     basic_auth_b64: &str,
     user: &User,
 ) -> anyhow::Result<HashMap<Brand, CruiseClient>> {
     let password_bytes = cipher.decrypt(&user.rcg_password_nonce, &user.rcg_password_ct)?;
     let password = String::from_utf8(password_bytes)?;
 
+    // Pass the bot so cabin assignments/reassignments detected during discovery
+    // are pushed to the reservation's subscribers.
     let (report, clients) = discover_with_clients(
         &user.rcg_username,
         &password,
         basic_auth_b64,
         repo as &dyn PriceRepo,
         user,
+        Some(bot),
     )
     .await?;
 

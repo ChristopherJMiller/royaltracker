@@ -1,6 +1,7 @@
 use chrono::NaiveDate;
 use royaltracker_api::{CruiseClient, CruiseClientConfig};
 use royaltracker_storage::PriceRepo;
+use royaltracker_telegram::{send_text, Bot};
 use royaltracker_types::{Booking, Brand, User};
 use std::collections::HashMap;
 use tracing::{info, warn};
@@ -17,8 +18,10 @@ pub async fn discover_and_persist_bookings(
     repo: &(dyn PriceRepo),
     user: &User,
 ) -> anyhow::Result<DiscoveryReport> {
+    // No bot here: web-initiated discovery (register/refresh) means the user is
+    // already looking at the UI, so cabin-change pushes would be redundant.
     let (report, _clients) =
-        discover_with_clients(rcg_username, rcg_password, basic_auth_b64, repo, user).await?;
+        discover_with_clients(rcg_username, rcg_password, basic_auth_b64, repo, user, None).await?;
     Ok(report)
 }
 
@@ -39,9 +42,23 @@ pub async fn discover_with_clients(
     basic_auth_b64: &str,
     repo: &(dyn PriceRepo),
     user: &User,
+    // When `Some`, cabin-assignment changes detected during this pass are pushed
+    // to each reservation's subscribers. The scraper supplies it; web discovery
+    // passes `None`.
+    bot: Option<&Bot>,
 ) -> anyhow::Result<(DiscoveryReport, HashMap<Brand, CruiseClient>)> {
     let mut report = DiscoveryReport::default();
     let mut clients: HashMap<Brand, CruiseClient> = HashMap::new();
+
+    // Snapshot of what we already had persisted, taken before this pass upserts
+    // anything, so we can detect cabin assignments/reassignments.
+    let existing_bookings: HashMap<String, Booking> = repo
+        .list_bookings()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|b| (b.reservation_id.clone(), b))
+        .collect();
 
     for brand in [Brand::Royal, Brand::Celebrity] {
         let cfg = CruiseClientConfig::web(
@@ -161,6 +178,38 @@ pub async fn discover_with_clients(
                 continue;
             }
             report.persisted += 1;
+
+            // Push a cabin-assignment alert when we have a bot and this booking
+            // existed before this pass (skips first-time discovery/backfill).
+            if let Some(bot) = bot {
+                if let Some(old) = existing_bookings.get(&reservation_id) {
+                    if let Some((headline, body, deck_cabin)) = detect_cabin_event(old, &booking) {
+                        let deck = royaltracker_types::deck_of_cabin(&deck_cabin)
+                            .map(|d| format!(" · deck {d}"))
+                            .unwrap_or_default();
+                        let ship = royaltracker_types::ship_name(&booking.ship_code)
+                            .unwrap_or(booking.ship_code.as_str());
+                        let text = format!(
+                            "{headline}\n{ship} · {}\n{body}{deck}",
+                            booking.sail_date.format("%b %-d, %Y")
+                        );
+                        match repo.list_subscribers_for_reservation(&reservation_id).await {
+                            Ok(subs) => {
+                                for s in subs {
+                                    if let Err(e) =
+                                        send_text(bot, s.telegram_chat_id, text.clone()).await
+                                    {
+                                        warn!(error = %e, chat_id = s.telegram_chat_id, "cabin-change alert failed");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "subscriber lookup for cabin alert failed")
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Stash the authenticated client so the caller can reuse the JWT for
@@ -177,6 +226,40 @@ pub async fn discover_with_clients(
     );
 
     Ok((report, clients))
+}
+
+/// Decide whether a booking's cabin changed in a way worth alerting on,
+/// comparing the previously-stored booking with the freshly-discovered one.
+/// Returns `(headline, body, cabin_for_deck)`.
+///
+/// Intentionally keys the "assigned" signal off the *displayed* stateroom
+/// flipping from `"GTY"` to a real number (RCG officially assigning the
+/// guarantee) rather than `assigned_stateroom` going `None → Some` — the latter
+/// fires on the one-time backfill of already-known rooms, the former never does.
+fn detect_cabin_event(old: &Booking, new: &Booking) -> Option<(&'static str, String, String)> {
+    // Official assignment: displayed cabin went from the "GTY" placeholder to a
+    // real room.
+    if old.stateroom.as_deref() == Some("GTY") {
+        if let Some(room) = new.stateroom.as_deref() {
+            if room != "GTY" && !room.is_empty() {
+                return Some((
+                    "🎉 Guarantee cabin assigned!",
+                    format!("Your room: {room}"),
+                    room.to_string(),
+                ));
+            }
+        }
+    }
+    // Reassignment: the recovered/assigned room changed between two known values.
+    if let (Some(a), Some(b)) = (
+        old.assigned_stateroom.as_deref(),
+        new.assigned_stateroom.as_deref(),
+    ) {
+        if a != b {
+            return Some(("🔀 Assigned cabin changed", format!("{a} → {b}"), b.to_string()));
+        }
+    }
+    None
 }
 
 #[derive(Debug, Default)]
