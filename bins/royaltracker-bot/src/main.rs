@@ -132,12 +132,41 @@ async fn main() -> Result<()> {
         ),
     )) {
         Ok(public_client) => {
+            // Identity (subscribe/manage) is optional — read-only lookup works
+            // without it. Enabled only when public.enabled + turnstile + device key.
+            let identity = cfg.public.as_ref().filter(|p| p.enabled).and_then(|p| {
+                match (&p.turnstile_secret, &p.turnstile_site_key, &p.device_cookie_key_b64) {
+                    (Some(secret), Some(site), Some(key_b64)) => {
+                        let vapid = cfg
+                            .notify
+                            .web_push
+                            .as_ref()
+                            .map(|w| w.vapid_public_key_b64.clone());
+                        let id = royaltracker_web::PublicIdentity::from_parts(
+                            secret.clone(),
+                            site.clone(),
+                            key_b64,
+                            vapid,
+                        );
+                        if id.is_none() {
+                            tracing::warn!("public.device_cookie_key_b64 invalid; subscribe disabled");
+                        }
+                        id
+                    }
+                    _ => {
+                        tracing::warn!("public.enabled but turnstile/device key missing; subscribe disabled");
+                        None
+                    }
+                }
+            });
+            let subscribe_on = identity.is_some();
             let public_state = royaltracker_web::PublicState {
                 repo: repo.clone(),
                 public_client: Arc::new(public_client),
+                identity,
             };
             app_router = app_router.merge(royaltracker_web::public_router(public_state));
-            tracing::info!("public no-login tier mounted at /p");
+            tracing::info!(subscribe = subscribe_on, "public no-login tier mounted at /p");
         }
         Err(e) => tracing::warn!(error = %e, "could not build public client; /p disabled"),
     }

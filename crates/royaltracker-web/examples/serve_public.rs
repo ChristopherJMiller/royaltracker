@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = PublicState {
         repo: Arc::new(repo),
         public_client: Arc::new(client),
+        identity: None,
     };
     let addr: std::net::SocketAddr = "127.0.0.1:8099".parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;

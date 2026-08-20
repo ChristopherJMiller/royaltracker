@@ -2996,10 +2996,13 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "hmac",
  "mime_guess",
+ "rand 0.8.6",
+ "reqwest",
  "royaltracker-api",
  "royaltracker-core",
  "royaltracker-crypto",

@@ -1,11 +1,12 @@
 mod auth;
+mod device;
 mod handlers;
 mod public;
 mod state;
 mod static_assets;
 
 pub use auth::{verify_init_data, AuthError, AuthedUser, TgAuthOnly};
-pub use public::{public_router, PublicState};
+pub use public::{public_router, PublicIdentity, PublicState};
 pub use state::AppState;
 
 use axum::routing::{delete, get, post, put};

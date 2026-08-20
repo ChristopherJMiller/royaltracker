@@ -10,139 +10,222 @@
   @media (prefers-color-scheme: light) { :root { --bg:#f4f6fb; --card:#fff; --fg:#131722; --muted:#5b6478; --line:#e2e6ef; --accent:#2f6bff; --drop:#12a150; } }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:20px 16px 8px; }
+  header { padding:20px 16px 8px; display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
   h1 { font-size:20px; margin:0 0 2px; }
   .sub { color:var(--muted); font-size:13px; margin:0; }
+  a.link { color:var(--accent); font-size:13px; cursor:pointer; text-decoration:none; white-space:nowrap; }
   main { padding:12px 16px 40px; max-width:760px; margin:0 auto; }
   .controls { display:grid; gap:10px; grid-template-columns:1fr 1fr; margin-bottom:16px; }
   .controls .full { grid-column:1 / -1; }
   label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  select, input, button { font:inherit; }
   select, input { width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); font-size:15px; }
   .status { color:var(--muted); font-size:13px; margin:8px 0; min-height:18px; }
   table { width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
   td.price { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  td.act { text-align:right; width:1%; white-space:nowrap; }
   .promo { color:var(--drop); font-weight:600; }
   .base { color:var(--muted); text-decoration:line-through; font-size:12px; }
   .cat { display:inline-block; font-size:11px; color:var(--muted); }
   .empty { color:var(--muted); padding:24px 4px; text-align:center; }
+  button.track { background:transparent; border:1px solid var(--line); color:var(--accent); border-radius:8px; padding:6px 10px; cursor:pointer; font-size:13px; }
+  button.primary { background:var(--accent); border:none; color:#fff; border-radius:8px; padding:10px 14px; cursor:pointer; font-size:15px; width:100%; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 12px; cursor:pointer; }
   footer { color:var(--muted); font-size:11px; text-align:center; padding:20px; }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--fg); max-width:420px; width:calc(100% - 32px); padding:18px; }
+  dialog::backdrop { background:rgba(0,0,0,.5); }
+  .seg { display:flex; gap:8px; margin:10px 0; }
+  .seg button { flex:1; padding:8px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer; }
+  .seg button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+  .row { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line); }
+  .hidden { display:none !important; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Sail Price Lookup</h1>
-  <p class="sub">Current add-on prices for any sailing — no login, no booking number.</p>
+  <div><h1>Sail Price Lookup</h1><p class="sub">Current add-on prices for any sailing — no login.</p></div>
+  <a class="link" id="manageLink">My alerts</a>
 </header>
 <main>
-  <div class="controls">
-    <div>
-      <label for="brand">Cruise line</label>
-      <select id="brand"><option value="royal">Royal Caribbean</option><option value="celebrity">Celebrity</option></select>
+  <div id="lookup">
+    <div class="controls">
+      <div><label for="brand">Cruise line</label>
+        <select id="brand"><option value="royal">Royal Caribbean</option><option value="celebrity">Celebrity</option></select></div>
+      <div><label for="ship">Ship</label><select id="ship"></select></div>
+      <div class="full"><label for="date">Sailing date</label><select id="date"><option value="">Select a ship first…</option></select></div>
     </div>
-    <div>
-      <label for="ship">Ship</label>
-      <select id="ship"></select>
-    </div>
-    <div class="full">
-      <label for="date">Sailing date</label>
-      <select id="date"><option value="">Select a ship first…</option></select>
-    </div>
+    <div class="status" id="status"></div>
+    <div id="results"></div>
   </div>
-  <div class="status" id="status"></div>
-  <div id="results"></div>
+
+  <div id="manage" class="hidden">
+    <p class="sub" style="margin:8px 0 12px">Alerts saved on this device. Clearing cookies forgets them.</p>
+    <div id="manageList"></div>
+    <p style="margin-top:16px"><a class="link" id="backLink">← Back to lookup</a></p>
+  </div>
 </main>
 <footer>Prices are the current public rates for the selected sailing and may differ from your personalized/loyalty pricing. Not affiliated with any cruise line.</footer>
+
+<dialog id="subDlg">
+  <h3 style="margin:0 0 4px" id="subTitle">Track this price</h3>
+  <p class="sub" id="subProduct"></p>
+  <div class="seg" id="chanSeg">
+    <button data-ch="email" aria-pressed="true">Email me</button>
+    <button data-ch="webpush" id="pushBtn">Browser push</button>
+  </div>
+  <div id="emailWrap"><label for="subEmail">Email address</label><input id="subEmail" type="email" placeholder="you@example.com"></div>
+  <div id="tsWrap" style="margin:12px 0"></div>
+  <div class="status" id="subStatus"></div>
+  <div style="display:flex; gap:8px; margin-top:6px">
+    <button class="ghost" id="subCancel" style="flex:1">Cancel</button>
+    <button class="primary" id="subGo" style="flex:2">Notify me on a drop</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
-  var brandSel = document.getElementById('brand');
-  var shipSel = document.getElementById('ship');
-  var dateSel = document.getElementById('date');
-  var status = document.getElementById('status');
-  var results = document.getElementById('results');
-  var allShips = [];
+  var $ = function (id) { return document.getElementById(id); };
+  var brandSel=$('brand'), shipSel=$('ship'), dateSel=$('date'), status=$('status'), results=$('results');
+  var allShips=[], cfg={subscribe_enabled:false}, tsWidgetId=null, chan='email', current=null;
 
-  function setStatus(t) { status.textContent = t || ''; }
+  function setStatus(t){ status.textContent=t||''; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
-  function loadShips() {
-    fetch('/public/ships').then(function (r) { return r.json(); }).then(function (ships) {
-      allShips = ships;
-      renderShips();
-    }).catch(function () { setStatus('Could not load ships.'); });
-  }
+  fetch('/public/config').then(function(r){return r.json();}).then(function(c){
+    cfg=c;
+    if (cfg.subscribe_enabled && cfg.turnstile_site_key) {
+      var sc=document.createElement('script');
+      sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js'; sc.async=true; sc.defer=true;
+      document.head.appendChild(sc);
+    }
+    if (!(cfg.subscribe_enabled && cfg.vapid_public_key)) { var pb=$('pushBtn'); if(pb) pb.classList.add('hidden'); }
+  }).catch(function(){});
 
-  function renderShips() {
-    var brand = brandSel.value;
-    shipSel.innerHTML = '';
-    allShips.filter(function (s) { return s.brand === brand; }).forEach(function (s) {
-      var o = document.createElement('option');
-      o.value = s.ship_code; o.textContent = s.ship_name;
-      shipSel.appendChild(o);
+  function loadShips(){ fetch('/public/ships').then(function(r){return r.json();}).then(function(s){allShips=s;renderShips();}).catch(function(){setStatus('Could not load ships.');}); }
+  function renderShips(){
+    shipSel.innerHTML='';
+    allShips.filter(function(s){return s.brand===brandSel.value;}).forEach(function(s){
+      var o=document.createElement('option'); o.value=s.ship_code; o.textContent=s.ship_name; shipSel.appendChild(o);
     });
     loadDates();
   }
-
-  function loadDates() {
-    var brand = brandSel.value, ship = shipSel.value;
-    dateSel.innerHTML = '<option value="">Loading dates…</option>';
-    results.innerHTML = '';
-    if (!ship) return;
-    setStatus('Loading sail dates…');
-    fetch('/public/sailings?brand=' + encodeURIComponent(brand) + '&ship=' + encodeURIComponent(ship))
-      .then(function (r) { return r.json(); })
-      .then(function (dates) {
-        setStatus('');
-        dateSel.innerHTML = '';
-        if (!dates.length) { dateSel.innerHTML = '<option value="">No dates found</option>'; return; }
-        var ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Select a date…';
-        dateSel.appendChild(ph);
-        dates.forEach(function (d) {
-          var o = document.createElement('option'); o.value = d; o.textContent = d; dateSel.appendChild(o);
-        });
-      })
-      .catch(function () { setStatus('Could not load dates.'); dateSel.innerHTML = '<option value="">Error</option>'; });
+  function loadDates(){
+    var brand=brandSel.value, ship=shipSel.value;
+    dateSel.innerHTML='<option value="">Loading dates…</option>'; results.innerHTML='';
+    if(!ship) return; setStatus('Loading sail dates…');
+    fetch('/public/sailings?brand='+encodeURIComponent(brand)+'&ship='+encodeURIComponent(ship))
+      .then(function(r){return r.json();}).then(function(dates){
+        setStatus(''); dateSel.innerHTML='';
+        if(!dates.length){dateSel.innerHTML='<option value="">No dates found</option>';return;}
+        var ph=document.createElement('option'); ph.value=''; ph.textContent='Select a date…'; dateSel.appendChild(ph);
+        dates.forEach(function(d){var o=document.createElement('option');o.value=d;o.textContent=d;dateSel.appendChild(o);});
+      }).catch(function(){setStatus('Could not load dates.');dateSel.innerHTML='<option value="">Error</option>';});
   }
-
-  function loadPrices() {
-    var brand = brandSel.value, ship = shipSel.value, date = dateSel.value;
-    results.innerHTML = '';
-    if (!date) return;
-    setStatus('Fetching current prices…');
-    fetch('/public/prices?brand=' + encodeURIComponent(brand) + '&ship=' + encodeURIComponent(ship) + '&sail_date=' + encodeURIComponent(date))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        setStatus(data.live ? 'Fresh from the cruise line just now.' : 'Latest tracked prices.');
-        render(data);
-      })
-      .catch(function () { setStatus('Could not load prices.'); });
+  function loadPrices(){
+    var brand=brandSel.value, ship=shipSel.value, date=dateSel.value;
+    results.innerHTML=''; if(!date) return; setStatus('Fetching current prices…');
+    fetch('/public/prices?brand='+encodeURIComponent(brand)+'&ship='+encodeURIComponent(ship)+'&sail_date='+encodeURIComponent(date))
+      .then(function(r){return r.json();}).then(function(data){
+        setStatus(data.live?'Fresh from the cruise line just now.':'Latest tracked prices.'); render(data,brand,ship,date);
+      }).catch(function(){setStatus('Could not load prices.');});
   }
-
-  function render(data) {
-    if (!data.planner_open) {
-      results.innerHTML = '<div class="empty">The Cruise Planner isn\'t open for this sailing yet.</div>';
-      return;
-    }
-    var withPromo = data.prices.filter(function (p) { return p.promo_price != null; });
-    var rows = (withPromo.length ? withPromo : data.prices);
-    if (!rows.length) { results.innerHTML = '<div class="empty">No priced products for this sailing.</div>'; return; }
-    var html = '<table><thead><tr><th>Product</th><th style="text-align:right">Price</th></tr></thead><tbody>';
-    rows.forEach(function (p) {
-      var price = p.price_label ? '<span class="promo">' + esc(p.price_label) + '</span>' : '<span class="base" style="text-decoration:none">' + esc(p.base_price_label || '—') + '</span>';
-      var base = (p.promo_price != null && p.base_price_label) ? ' <span class="base">' + esc(p.base_price_label) + '</span>' : '';
-      html += '<tr><td>' + esc(p.title || p.product_code) + '<br><span class="cat">' + esc(p.category || '') + '</span></td><td class="price">' + price + base + '</td></tr>';
+  function render(data,brand,ship,date){
+    if(!data.planner_open){results.innerHTML='<div class="empty">The Cruise Planner isn\'t open for this sailing yet.</div>';return;}
+    var withPromo=data.prices.filter(function(p){return p.promo_price!=null;});
+    var rows=(withPromo.length?withPromo:data.prices);
+    if(!rows.length){results.innerHTML='<div class="empty">No priced products for this sailing.</div>';return;}
+    var html='<table><thead><tr><th>Product</th><th style="text-align:right">Price</th><th></th></tr></thead><tbody>';
+    rows.forEach(function(p){
+      var price=p.price_label?'<span class="promo">'+esc(p.price_label)+'</span>':'<span class="base" style="text-decoration:none">'+esc(p.base_price_label||'—')+'</span>';
+      var base=(p.promo_price!=null&&p.base_price_label)?' <span class="base">'+esc(p.base_price_label)+'</span>':'';
+      var track=cfg.subscribe_enabled?'<button class="track" data-code="'+esc(p.product_code)+'" data-cat="'+esc(p.category||'')+'" data-label="'+esc(p.title||p.product_code)+'">🔔 Track</button>':'';
+      html+='<tr><td>'+esc(p.title||p.product_code)+'<br><span class="cat">'+esc(p.category||'')+'</span></td><td class="price">'+price+base+'</td><td class="act">'+track+'</td></tr>';
     });
-    html += '</tbody></table>';
-    results.innerHTML = html;
+    html+='</tbody></table>';
+    results.innerHTML=html;
+    Array.prototype.forEach.call(results.querySelectorAll('button.track'),function(b){
+      b.addEventListener('click',function(){ openSub(brand,ship,date,b.dataset.code,b.dataset.cat,b.dataset.label); });
+    });
   }
 
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  // ---- subscribe ----
+  var dlg=$('subDlg');
+  function openSub(brand,ship,date,code,cat,label){
+    current={brand:brand,ship:ship,sail_date:date,product_code:code,category:cat,label:label};
+    $('subProduct').textContent=label+' · '+ship+' '+date;
+    $('subStatus').textContent=''; setChan('email');
+    $('tsWrap').innerHTML='';
+    if(window.turnstile && cfg.turnstile_site_key){ tsWidgetId=window.turnstile.render('#tsWrap',{sitekey:cfg.turnstile_site_key}); }
+    dlg.showModal();
+  }
+  function setChan(c){ chan=c; Array.prototype.forEach.call($('chanSeg').children,function(b){b.setAttribute('aria-pressed', b.dataset.ch===c);}); $('emailWrap').classList.toggle('hidden', c!=='email'); }
+  Array.prototype.forEach.call($('chanSeg').children,function(b){ b.addEventListener('click',function(){ setChan(b.dataset.ch); }); });
+  $('subCancel').addEventListener('click',function(){ dlg.close(); });
+
+  function tsToken(){ return (window.turnstile && tsWidgetId!=null) ? window.turnstile.getResponse(tsWidgetId) : null; }
+  function urlB64ToUint8(base64){ var pad='='.repeat((4-base64.length%4)%4); var b=(base64+pad).replace(/-/g,'+').replace(/_/g,'/'); var raw=atob(b); var arr=new Uint8Array(raw.length); for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i); return arr; }
+
+  $('subGo').addEventListener('click', function(){
+    var token=tsToken();
+    if(cfg.turnstile_site_key && !token){ $('subStatus').textContent='Please complete the challenge.'; return; }
+    var body=Object.assign({channel:chan, turnstile_token:token, alert_mode:'any_drop'}, current);
+    $('subStatus').textContent='Saving…';
+    var chain=Promise.resolve();
+    if(chan==='email'){
+      var em=$('subEmail').value.trim();
+      if(em.indexOf('@')<0){ $('subStatus').textContent='Enter a valid email.'; return; }
+      body.email=em;
+    } else {
+      chain=enablePush().then(function(sub){ body.push=sub; });
+    }
+    chain.then(function(){
+      return fetch('/public/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }).then(function(r){
+      if(r.ok){ $('subStatus').textContent='✓ You\'ll be notified on a drop.'; setTimeout(function(){dlg.close();},900); }
+      else return r.text().then(function(t){ $('subStatus').textContent='Failed: '+t; });
+    }).catch(function(e){ $('subStatus').textContent='Failed: '+e.message; });
+  });
+
+  function enablePush(){
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)) return Promise.reject(new Error('Push not supported on this device'));
+    return Notification.requestPermission().then(function(perm){
+      if(perm!=='granted') throw new Error('Notifications blocked');
+      return navigator.serviceWorker.ready;
+    }).then(function(reg){
+      return reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToUint8(cfg.vapid_public_key)});
+    }).then(function(sub){
+      var j=sub.toJSON();
+      return {endpoint:sub.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth};
+    });
+  }
+
+  // ---- manage ----
+  function showManage(){
+    $('lookup').classList.add('hidden'); $('manage').classList.remove('hidden');
+    var list=$('manageList'); list.innerHTML='<p class="sub">Loading…</p>';
+    fetch('/public/subscriptions').then(function(r){ if(r.status===401){throw new Error('none');} return r.json(); }).then(function(rows){
+      if(!rows.length){ list.innerHTML='<div class="empty">No alerts yet.</div>'; return; }
+      list.innerHTML='';
+      rows.forEach(function(s){
+        var el=document.createElement('div'); el.className='row';
+        var price=s.latest_promo_price!=null?('$'+s.latest_promo_price.toFixed(2)):'—';
+        el.innerHTML='<div><div>'+esc(s.label||s.product_code)+'</div><span class="cat">'+esc(s.ship_code)+' · '+esc(s.sail_date)+' · now '+price+' · '+esc(s.channel_kind)+'</span></div>';
+        var b=document.createElement('button'); b.className='ghost'; b.textContent='Remove';
+        b.addEventListener('click',function(){ fetch('/public/subscriptions/'+s.subscription_id,{method:'DELETE'}).then(function(){ el.remove(); }); });
+        el.appendChild(b); list.appendChild(el);
+      });
+    }).catch(function(){ list.innerHTML='<div class="empty">No alerts on this device yet.</div>'; });
+  }
+  $('manageLink').addEventListener('click', showManage);
+  $('backLink').addEventListener('click', function(){ $('manage').classList.add('hidden'); $('lookup').classList.remove('hidden'); });
 
   brandSel.addEventListener('change', renderShips);
   shipSel.addEventListener('change', loadDates);
   dateSel.addEventListener('change', loadPrices);
   loadShips();
-  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/p/sw.js').catch(function () {}); }
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/p/sw.js').catch(function(){}); }
 })();
 </script>
 </body>
