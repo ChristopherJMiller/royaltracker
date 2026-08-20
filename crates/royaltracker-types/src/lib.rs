@@ -158,6 +158,56 @@ pub fn ship_name(code: &str) -> Option<&'static str> {
     Some(name)
 }
 
+/// Every ship we know a name for, as `(code, name, brand)`. Backs the public
+/// tier's ship picker so a user can look up any sailing before anyone has tracked
+/// it. Keep in sync with `ship_name`.
+pub fn all_ships() -> &'static [(&'static str, &'static str, Brand)] {
+    &[
+        // Celebrity
+        ("AS", "Celebrity Ascent", Brand::Celebrity),
+        ("AX", "Celebrity Apex", Brand::Celebrity),
+        ("BE", "Celebrity Beyond", Brand::Celebrity),
+        ("EC", "Celebrity Eclipse", Brand::Celebrity),
+        ("ED", "Celebrity Edge", Brand::Celebrity),
+        ("EQ", "Celebrity Equinox", Brand::Celebrity),
+        ("IN", "Celebrity Infinity", Brand::Celebrity),
+        ("MI", "Celebrity Millennium", Brand::Celebrity),
+        ("RF", "Celebrity Reflection", Brand::Celebrity),
+        ("SI", "Celebrity Silhouette", Brand::Celebrity),
+        ("SL", "Celebrity Solstice", Brand::Celebrity),
+        ("SU", "Celebrity Summit", Brand::Celebrity),
+        ("XC", "Celebrity Xcel", Brand::Celebrity),
+        // Royal Caribbean
+        ("AD", "Adventure of the Seas", Brand::Royal),
+        ("AL", "Allure of the Seas", Brand::Royal),
+        ("AN", "Anthem of the Seas", Brand::Royal),
+        ("BR", "Brilliance of the Seas", Brand::Royal),
+        ("EN", "Enchantment of the Seas", Brand::Royal),
+        ("EP", "Explorer of the Seas", Brand::Royal),
+        ("FR", "Freedom of the Seas", Brand::Royal),
+        ("GR", "Grandeur of the Seas", Brand::Royal),
+        ("HM", "Harmony of the Seas", Brand::Royal),
+        ("IC", "Icon of the Seas", Brand::Royal),
+        ("JW", "Jewel of the Seas", Brand::Royal),
+        ("LB", "Liberty of the Seas", Brand::Royal),
+        ("MA", "Mariner of the Seas", Brand::Royal),
+        ("NV", "Navigator of the Seas", Brand::Royal),
+        ("OA", "Oasis of the Seas", Brand::Royal),
+        ("OD", "Odyssey of the Seas", Brand::Royal),
+        ("OV", "Ovation of the Seas", Brand::Royal),
+        ("QN", "Quantum of the Seas", Brand::Royal),
+        ("RD", "Radiance of the Seas", Brand::Royal),
+        ("RH", "Rhapsody of the Seas", Brand::Royal),
+        ("SP", "Spectrum of the Seas", Brand::Royal),
+        ("SR", "Star of the Seas", Brand::Royal),
+        ("SY", "Symphony of the Seas", Brand::Royal),
+        ("UT", "Utopia of the Seas", Brand::Royal),
+        ("VS", "Vision of the Seas", Brand::Royal),
+        ("VY", "Voyager of the Seas", Brand::Royal),
+        ("WN", "Wonder of the Seas", Brand::Royal),
+    ]
+}
+
 /// Best-effort deck number for a Royal Caribbean / Celebrity cabin number.
 ///
 /// Modern ships encode the deck as the leading digit(s) followed by a 3-digit
@@ -302,6 +352,57 @@ impl std::str::FromStr for AlertMode {
 #[derive(Debug, thiserror::Error)]
 #[error("unknown alert mode: {0}")]
 pub struct ParseAlertModeError(pub String);
+
+/// Delivery channel for a public-tier (no-login) subscription. Telegram is NOT
+/// a member — authed Telegram targets are synthesized from `users` at query
+/// time, not stored in the public-channel table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicChannelKind {
+    WebPush,
+    Email,
+}
+
+impl PublicChannelKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PublicChannelKind::WebPush => "webpush",
+            PublicChannelKind::Email => "email",
+        }
+    }
+}
+
+impl std::fmt::Display for PublicChannelKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for PublicChannelKind {
+    type Err = ParsePublicChannelKindError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "webpush" => Ok(PublicChannelKind::WebPush),
+            "email" => Ok(PublicChannelKind::Email),
+            _ => Err(ParsePublicChannelKindError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown public channel kind: {0}")]
+pub struct ParsePublicChannelKindError(pub String);
+
+/// A distinct sailing (brand + ship + departure date) — the identity the public
+/// tier keys price series on. One fetch of a sailing's public prices serves every
+/// subscriber and, via convergence, the owner's booking display.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sailing {
+    pub id: i64,
+    pub brand: Brand,
+    pub ship_code: String,
+    pub sail_date: NaiveDate,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchedProduct {

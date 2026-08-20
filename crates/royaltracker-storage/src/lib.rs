@@ -12,7 +12,9 @@ mod sqlite;
 mod postgres;
 
 pub use repo::{
-    CatalogEntry, DeckPlan, HistoryPoint, NewUser, PriceRepo, StorageError, SubscriberInfo,
+    CatalogEntry, DeckPlan, HistoryPoint, NewPublicChannel, NewUser, PriceRepo, PublicPriceDto,
+    PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingSnapshot, ScrapeTarget, ShipRef,
+    StorageError, SubscriberInfo,
 };
 
 #[cfg(feature = "sqlite")]

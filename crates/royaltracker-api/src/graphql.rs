@@ -4,12 +4,47 @@
 //! prices via the authenticated REST `catalog/v2` endpoint per watched product.
 
 use chrono::NaiveDate;
+use royaltracker_types::Brand;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::ApiError;
 
-pub const GRAPHQL_URL: &str = "https://aws-prd.api.rccl.com/en/royal/web/graphql";
+/// The public GraphQL endpoint is brand-scoped in its path segment. Using the
+/// wrong brand's segment silently returns another brand's catalog, so this must
+/// track the sailing's brand (was previously hardcoded to `royal`).
+pub fn graphql_url(brand: Brand) -> String {
+    format!(
+        "https://aws-prd.api.rccl.com/en/{}/web/graphql",
+        brand.url_segment()
+    )
+}
+
+/// Parse a money string (`"$87.99"`, `"87.99"`, `"1,234.00"`) to exact integer
+/// cents. Avoids float rounding drift before the storage boundary.
+pub fn parse_money_cents(s: &str) -> Option<i64> {
+    let cleaned: String = s
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let mut parts = cleaned.splitn(2, '.');
+    let whole: i64 = parts.next().unwrap_or("0").parse().ok()?;
+    let cents = match parts.next() {
+        None => 0,
+        Some(frac) => {
+            let mut f = frac.to_string();
+            f.truncate(2);
+            while f.len() < 2 {
+                f.push('0');
+            }
+            f.parse::<i64>().ok()?
+        }
+    };
+    Some(whole * 100 + cents)
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Category {
@@ -91,6 +126,7 @@ pub async fn fetch_categories(
     http: &wreq::Client,
     app_key: &str,
     user_agent: &str,
+    brand: Brand,
     ship_code: &str,
     sail_date: NaiveDate,
 ) -> Result<Vec<Category>, ApiError> {
@@ -104,7 +140,7 @@ pub async fn fetch_categories(
     });
 
     let resp = http
-        .post(GRAPHQL_URL)
+        .post(graphql_url(brand))
         .header("User-Agent", user_agent)
         .header("Accept", "application/json")
         .header("appkey", app_key)
@@ -136,6 +172,7 @@ pub async fn fetch_products_in_category(
     http: &wreq::Client,
     app_key: &str,
     user_agent: &str,
+    brand: Brand,
     ship_code: &str,
     sail_date: NaiveDate,
     category_id: &str,
@@ -143,33 +180,38 @@ pub async fn fetch_products_in_category(
     reservation_id: Option<&str>,
     currency: &str,
 ) -> Result<Vec<GraphqlProduct>, ApiError> {
-    let pax = passenger_id.unwrap_or("");
-    let res = reservation_id.unwrap_or("000000");
     let query = "query WebProductsByCategory($category:String!,$passengerId:String,$shipCode:ShipCodeScalar!,$sailDate:LocalDateScalar!,$reservationId:String,$pageSize:Long,$currentPage:Long,$sorting:Sorting,$filter:FilterInput,$currencyCode:String!){products(category:$category,guestTypes:[ADULT],passengerId:$passengerId,shipCode:$shipCode,sailDate:$sailDate,reservationId:$reservationId,pageSize:$pageSize,currentPage:$currentPage,sorting:$sorting,filter:$filter,currencyIso:$currencyCode){... on CommerceProductResultSuccess{commerceProducts{id title variantOptions{code name} price{currency promotionalPrice shipboardPrice formattedPromotionalPrice formattedBasePrice formattedDailyPrice formattedPromoDailyPrice salesUnit{code name label}}}}}}";
 
     let mut all = Vec::new();
     for page in 0i64..50 {
+        let mut variables = json!({
+            "category": category_id,
+            "shipCode": ship_code,
+            "sailDate": sail_date.format("%Y-%m-%d").to_string(),
+            "pageSize": 12,
+            "currentPage": page,
+            "sorting": { "sortKey": "RANK", "sortKeyOrder": "ASCENDING" },
+            "filter": { "includeVariantProducts": false },
+            "currencyCode": currency,
+            "includeFilterInfo": false,
+            "includeIfABexperience": false,
+        });
+        // CRITICAL (live-validated): only include reservationId/passengerId when
+        // we actually have them. Passing a dummy "000000" reservationId SUPPRESSES
+        // all prices to null on the public path; omitting the keys entirely is what
+        // makes the public promotional prices come back non-null.
+        if let (Some(map), Some(res)) = (variables.as_object_mut(), reservation_id) {
+            map.insert("reservationId".into(), json!(res));
+            map.insert("passengerId".into(), json!(passenger_id.unwrap_or("")));
+        }
         let body = json!({
             "operationName": "WebProductsByCategory",
-            "variables": {
-                "category": category_id,
-                "passengerId": pax,
-                "shipCode": ship_code,
-                "sailDate": sail_date.format("%Y-%m-%d").to_string(),
-                "reservationId": res,
-                "pageSize": 12,
-                "currentPage": page,
-                "sorting": { "sortKey": "RANK", "sortKeyOrder": "ASCENDING" },
-                "filter": { "includeVariantProducts": false },
-                "currencyCode": currency,
-                "includeFilterInfo": false,
-                "includeIfABexperience": false,
-            },
+            "variables": variables,
             "query": query,
         });
 
         let resp = http
-            .post(GRAPHQL_URL)
+            .post(graphql_url(brand))
             .header("User-Agent", user_agent)
             .header("Accept", "application/json")
             .header("appkey", app_key)

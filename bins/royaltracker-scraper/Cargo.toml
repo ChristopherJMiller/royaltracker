@@ -22,6 +22,7 @@ royaltracker-core     = { workspace = true }
 royaltracker-crypto   = { workspace = true }
 royaltracker-storage  = { workspace = true, default-features = false }
 royaltracker-telegram = { workspace = true }
+royaltracker-notify   = { workspace = true }
 royaltracker-types    = { workspace = true }
 
 tokio              = { workspace = true, features = ["macros", "rt-multi-thread"] }

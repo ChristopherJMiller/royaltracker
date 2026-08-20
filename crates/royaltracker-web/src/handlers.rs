@@ -553,9 +553,12 @@ async fn watch_belongs_to_user(
 
 pub async fn history(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
     Path(watched_id): Path<i64>,
 ) -> Result<Json<Vec<HistoryPoint>>, ApiError> {
+    if !watch_belongs_to_user(&*s.repo, user.db_user.id, watched_id).await? {
+        return Err((StatusCode::NOT_FOUND, "not found".into()));
+    }
     let points = s
         .repo
         .snapshot_history(watched_id, 365)
@@ -584,11 +587,23 @@ pub struct DeckPlanResponse {
 /// versioned image filename, then persist it.
 pub async fn deck_plan(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
     Query(q): Query<DeckPlanQuery>,
 ) -> Result<Json<DeckPlanResponse>, ApiError> {
     if !(1..=25).contains(&q.deck) {
         return Err((StatusCode::BAD_REQUEST, "invalid deck".into()));
+    }
+    // Ownership gate: the caller must have a booking on this ship. Otherwise the
+    // endpoint is an open proxy for arbitrary cruisedeckplans scrapes.
+    let owns_ship = s
+        .repo
+        .list_bookings_for_user(user.db_user.id)
+        .await
+        .map_err(db_err)?
+        .iter()
+        .any(|b| b.ship_code.eq_ignore_ascii_case(&q.ship));
+    if !owns_ship {
+        return Err((StatusCode::NOT_FOUND, "not found".into()));
     }
     let Some(name) = royaltracker_types::ship_name(&q.ship) else {
         return Err((StatusCode::NOT_FOUND, "unknown ship".into()));

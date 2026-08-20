@@ -49,13 +49,36 @@ pub struct CruiseClient {
     warmed: Arc<Mutex<bool>>,
 }
 
+/// Build the Chrome-emulated wreq client (TLS/JA3 fingerprint + cookie jar)
+/// that gets past Akamai Bot Manager. Shared by the authed `CruiseClient` and
+/// the public (appkey-only) client so both present the same browser fingerprint.
+pub fn build_emulated_client() -> Result<wreq::Client, ApiError> {
+    Ok(wreq::Client::builder()
+        .emulation(wreq_util::Emulation::Chrome145)
+        .timeout(std::time::Duration::from_secs(30))
+        .cookie_store(true)
+        .build()?)
+}
+
+/// Hit a brand homepage once to seed Akamai's `_abck` / `bm_sz` cookies before
+/// making API calls from that jar. See `CruiseClient::warm_up` for the rationale.
+pub async fn warm_up_host(http: &wreq::Client, user_agent: &str, host: &str) -> Result<(), ApiError> {
+    let url = format!("https://{host}/");
+    let resp = http
+        .get(&url)
+        .header("User-Agent", user_agent)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .send()
+        .await?;
+    // Drain the body so the connection can be reused.
+    let _ = resp.text().await;
+    Ok(())
+}
+
 impl CruiseClient {
     pub fn new(cfg: CruiseClientConfig) -> Result<Self, ApiError> {
-        let http = wreq::Client::builder()
-            .emulation(wreq_util::Emulation::Chrome145)
-            .timeout(std::time::Duration::from_secs(30))
-            .cookie_store(true)
-            .build()?;
+        let http = build_emulated_client()?;
         Ok(Self {
             cfg,
             http,
@@ -80,18 +103,7 @@ impl CruiseClient {
                 return Ok(());
             }
         }
-        let url = format!("https://{}/", self.cfg.brand.host());
-        let resp = self
-            .http
-            .get(&url)
-            .header("User-Agent", &self.cfg.user_agent)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .send()
-            .await?;
-        debug!(status = %resp.status(), "warm-up GET complete");
-        // Drain the body so the connection can be reused.
-        let _ = resp.text().await;
+        warm_up_host(&self.http, &self.cfg.user_agent, self.cfg.brand.host()).await?;
         let mut g = self.warmed.lock().await;
         *g = true;
         Ok(())
@@ -240,6 +252,7 @@ impl CruiseClient {
             &self.http,
             &self.cfg.app_key,
             &self.cfg.user_agent,
+            self.cfg.brand,
             ship_code,
             sail_date,
         )
@@ -251,6 +264,7 @@ impl CruiseClient {
                 &self.http,
                 &self.cfg.app_key,
                 &self.cfg.user_agent,
+                self.cfg.brand,
                 ship_code,
                 sail_date,
                 &cat.id,

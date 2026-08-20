@@ -11,3 +11,15 @@ pub async fn sleep_with_jitter(max_minutes: u32) {
     tracing::info!(jitter_seconds = secs, "jitter sleep");
     tokio::time::sleep(Duration::from_secs(secs)).await;
 }
+
+/// Sleep a uniformly-random duration in `[lo, hi]`. Used to spread the public
+/// sweep across its window without a metronomic cadence.
+pub async fn jittered_delay(lo: Duration, hi: Duration) {
+    if hi <= lo {
+        tokio::time::sleep(lo).await;
+        return;
+    }
+    let span = (hi - lo).as_millis() as u64;
+    let extra = rand::thread_rng().gen_range(0..=span);
+    tokio::time::sleep(lo + Duration::from_millis(extra)).await;
+}

@@ -6,6 +6,7 @@ members = [
     "crates/royaltracker-storage",
     "crates/royaltracker-config",
     "crates/royaltracker-telegram",
+    "crates/royaltracker-notify",
     "crates/royaltracker-core",
     "crates/royaltracker-crypto",
     "crates/royaltracker-web",
@@ -26,6 +27,7 @@ royaltracker-api       = { path = "crates/royaltracker-api" }
 royaltracker-storage   = { path = "crates/royaltracker-storage", default-features = false }
 royaltracker-config    = { path = "crates/royaltracker-config" }
 royaltracker-telegram  = { path = "crates/royaltracker-telegram" }
+royaltracker-notify    = { path = "crates/royaltracker-notify" }
 royaltracker-core      = { path = "crates/royaltracker-core" }
 royaltracker-crypto    = { path = "crates/royaltracker-crypto" }
 royaltracker-web       = { path = "crates/royaltracker-web", default-features = false }

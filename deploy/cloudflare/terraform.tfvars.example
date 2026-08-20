@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill in. DO NOT commit terraform.tfvars.
+# The API token is NOT set here — export it instead:
+#   export TF_VAR_cloudflare_api_token="xxxxxxxx"   # or CLOUDFLARE_API_TOKEN
+
+# ---- Account / zone identity (from the Cloudflare dashboard) ----
+account_id = "0123456789abcdef0123456789abcdef"
+zone_id    = "fedcba9876543210fedcba9876543210"
+zone_name  = "chrismiller.xyz"
+
+# ---- Public hostname + in-cluster origin ----
+public_hostname    = "prices.chrismiller.xyz"
+origin_service_url = "http://royaltracker-bot.royaltracker.svc.cluster.local:80"
+
+# ---- Tunnel ----
+tunnel_name = "royaltracker-public"
+
+# ---- Turnstile ----
+turnstile_widget_name = "royaltracker-public-signup"
+turnstile_domains     = ["prices.chrismiller.xyz", "localhost"]
+
+# ---- Cache / rate limit / WAF tuning (defaults are sane; override if needed) ----
+# public_api_path_prefix        = "/api/public/"
+# signup_path                   = "/api/public/subscribe"
+# edge_cache_ttl_seconds        = 3600
+# browser_cache_ttl_seconds     = 300
+# ratelimit_requests_per_minute = 120
+# ratelimit_block_seconds       = 60

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sail Price Lookup</title>
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Sail%20Price%20Lookup%22%2C%22short_name%22%3A%22SailPrice%22%2C%22start_url%22%3A%22%2Fp%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230b1020%22%2C%22theme_color%22%3A%22%230b1020%22%7D">
+<style>
+  :root { color-scheme: light dark; --bg:#0b1020; --card:#151b2e; --fg:#e8ecf5; --muted:#9aa4bf; --line:#26304b; --accent:#5b8cff; --drop:#3ddc84; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f6fb; --card:#fff; --fg:#131722; --muted:#5b6478; --line:#e2e6ef; --accent:#2f6bff; --drop:#12a150; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:20px 16px 8px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:13px; margin:0; }
+  main { padding:12px 16px 40px; max-width:760px; margin:0 auto; }
+  .controls { display:grid; gap:10px; grid-template-columns:1fr 1fr; margin-bottom:16px; }
+  .controls .full { grid-column:1 / -1; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  select, input { width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); font-size:15px; }
+  .status { color:var(--muted); font-size:13px; margin:8px 0; min-height:18px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  td.price { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .promo { color:var(--drop); font-weight:600; }
+  .base { color:var(--muted); text-decoration:line-through; font-size:12px; }
+  .cat { display:inline-block; font-size:11px; color:var(--muted); }
+  .empty { color:var(--muted); padding:24px 4px; text-align:center; }
+  footer { color:var(--muted); font-size:11px; text-align:center; padding:20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sail Price Lookup</h1>
+  <p class="sub">Current add-on prices for any sailing — no login, no booking number.</p>
+</header>
+<main>
+  <div class="controls">
+    <div>
+      <label for="brand">Cruise line</label>
+      <select id="brand"><option value="royal">Royal Caribbean</option><option value="celebrity">Celebrity</option></select>
+    </div>
+    <div>
+      <label for="ship">Ship</label>
+      <select id="ship"></select>
+    </div>
+    <div class="full">
+      <label for="date">Sailing date</label>
+      <select id="date"><option value="">Select a ship first…</option></select>
+    </div>
+  </div>
+  <div class="status" id="status"></div>
+  <div id="results"></div>
+</main>
+<footer>Prices are the current public rates for the selected sailing and may differ from your personalized/loyalty pricing. Not affiliated with any cruise line.</footer>
+<script>
+(function () {
+  var brandSel = document.getElementById('brand');
+  var shipSel = document.getElementById('ship');
+  var dateSel = document.getElementById('date');
+  var status = document.getElementById('status');
+  var results = document.getElementById('results');
+  var allShips = [];
+
+  function setStatus(t) { status.textContent = t || ''; }
+
+  function loadShips() {
+    fetch('/public/ships').then(function (r) { return r.json(); }).then(function (ships) {
+      allShips = ships;
+      renderShips();
+    }).catch(function () { setStatus('Could not load ships.'); });
+  }
+
+  function renderShips() {
+    var brand = brandSel.value;
+    shipSel.innerHTML = '';
+    allShips.filter(function (s) { return s.brand === brand; }).forEach(function (s) {
+      var o = document.createElement('option');
+      o.value = s.ship_code; o.textContent = s.ship_name;
+      shipSel.appendChild(o);
+    });
+    loadDates();
+  }
+
+  function loadDates() {
+    var brand = brandSel.value, ship = shipSel.value;
+    dateSel.innerHTML = '<option value="">Loading dates…</option>';
+    results.innerHTML = '';
+    if (!ship) return;
+    setStatus('Loading sail dates…');
+    fetch('/public/sailings?brand=' + encodeURIComponent(brand) + '&ship=' + encodeURIComponent(ship))
+      .then(function (r) { return r.json(); })
+      .then(function (dates) {
+        setStatus('');
+        dateSel.innerHTML = '';
+        if (!dates.length) { dateSel.innerHTML = '<option value="">No dates found</option>'; return; }
+        var ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Select a date…';
+        dateSel.appendChild(ph);
+        dates.forEach(function (d) {
+          var o = document.createElement('option'); o.value = d; o.textContent = d; dateSel.appendChild(o);
+        });
+      })
+      .catch(function () { setStatus('Could not load dates.'); dateSel.innerHTML = '<option value="">Error</option>'; });
+  }
+
+  function loadPrices() {
+    var brand = brandSel.value, ship = shipSel.value, date = dateSel.value;
+    results.innerHTML = '';
+    if (!date) return;
+    setStatus('Fetching current prices…');
+    fetch('/public/prices?brand=' + encodeURIComponent(brand) + '&ship=' + encodeURIComponent(ship) + '&sail_date=' + encodeURIComponent(date))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus(data.live ? 'Fresh from the cruise line just now.' : 'Latest tracked prices.');
+        render(data);
+      })
+      .catch(function () { setStatus('Could not load prices.'); });
+  }
+
+  function render(data) {
+    if (!data.planner_open) {
+      results.innerHTML = '<div class="empty">The Cruise Planner isn\'t open for this sailing yet.</div>';
+      return;
+    }
+    var withPromo = data.prices.filter(function (p) { return p.promo_price != null; });
+    var rows = (withPromo.length ? withPromo : data.prices);
+    if (!rows.length) { results.innerHTML = '<div class="empty">No priced products for this sailing.</div>'; return; }
+    var html = '<table><thead><tr><th>Product</th><th style="text-align:right">Price</th></tr></thead><tbody>';
+    rows.forEach(function (p) {
+      var price = p.price_label ? '<span class="promo">' + esc(p.price_label) + '</span>' : '<span class="base" style="text-decoration:none">' + esc(p.base_price_label || '—') + '</span>';
+      var base = (p.promo_price != null && p.base_price_label) ? ' <span class="base">' + esc(p.base_price_label) + '</span>' : '';
+      html += '<tr><td>' + esc(p.title || p.product_code) + '<br><span class="cat">' + esc(p.category || '') + '</span></td><td class="price">' + price + base + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    results.innerHTML = html;
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+
+  brandSel.addEventListener('change', renderShips);
+  shipSel.addEventListener('change', loadDates);
+  dateSel.addEventListener('change', loadPrices);
+  loadShips();
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/p/sw.js').catch(function () {}); }
+})();
+</script>
+</body>
+</html>

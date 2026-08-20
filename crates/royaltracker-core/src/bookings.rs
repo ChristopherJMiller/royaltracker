@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use royaltracker_api::{CruiseClient, CruiseClientConfig};
 use royaltracker_storage::PriceRepo;
-use royaltracker_telegram::{send_text, Bot};
+use royaltracker_notify::{NotifyTarget, Notifier, TextAlert};
 use royaltracker_types::{Booking, Brand, User};
 use std::collections::HashMap;
 use tracing::{info, warn};
@@ -45,7 +45,7 @@ pub async fn discover_with_clients(
     // When `Some`, cabin-assignment changes detected during this pass are pushed
     // to each reservation's subscribers. The scraper supplies it; web discovery
     // passes `None`.
-    bot: Option<&Bot>,
+    notifier: Option<&dyn Notifier>,
 ) -> anyhow::Result<(DiscoveryReport, HashMap<Brand, CruiseClient>)> {
     let mut report = DiscoveryReport::default();
     let mut clients: HashMap<Brand, CruiseClient> = HashMap::new();
@@ -179,9 +179,9 @@ pub async fn discover_with_clients(
             }
             report.persisted += 1;
 
-            // Push a cabin-assignment alert when we have a bot and this booking
-            // existed before this pass (skips first-time discovery/backfill).
-            if let Some(bot) = bot {
+            // Push a cabin-assignment alert when we have a notifier and this
+            // booking existed before this pass (skips first-time discovery/backfill).
+            if let Some(notifier) = notifier {
                 if let Some(old) = existing_bookings.get(&reservation_id) {
                     if let Some((headline, body, deck_cabin)) = detect_cabin_event(old, &booking) {
                         let deck = royaltracker_types::deck_of_cabin(&deck_cabin)
@@ -193,12 +193,18 @@ pub async fn discover_with_clients(
                             "{headline}\n{ship} · {}\n{body}{deck}",
                             booking.sail_date.format("%b %-d, %Y")
                         );
+                        let alert = TextAlert {
+                            title: &headline,
+                            body: &text,
+                            manage_url: None,
+                        };
                         match repo.list_subscribers_for_reservation(&reservation_id).await {
                             Ok(subs) => {
                                 for s in subs {
-                                    if let Err(e) =
-                                        send_text(bot, s.telegram_chat_id, text.clone()).await
-                                    {
+                                    let target = NotifyTarget::Telegram {
+                                        chat_id: s.telegram_chat_id,
+                                    };
+                                    if let Err(e) = notifier.notify_text(&target, &alert).await {
                                         warn!(error = %e, chat_id = s.telegram_chat_id, "cabin-change alert failed");
                                     }
                                 }

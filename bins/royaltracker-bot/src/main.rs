@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
-use royaltracker_api::{CruiseClient, CruiseClientConfig};
+use royaltracker_api::{
+    CruiseClient, CruiseClientConfig, PacingConfig, PublicClient, PublicClientConfig,
+    DEFAULT_USER_AGENT,
+};
 use royaltracker_config::Config;
 use royaltracker_crypto::Cipher;
 use royaltracker_storage::{connect, DefaultRepo, NewUser, PriceRepo};
@@ -111,12 +114,40 @@ async fn main() -> Result<()> {
         .bind_addr
         .parse()
         .context("web.bind_addr parse")?;
+
+    // Mount the no-login public tier alongside the authed Mini App. The public
+    // client egresses from this pod's (home) IP for live seed-on-lookup fetches.
+    let p = &cfg.pacing;
+    let mut app_router = royaltracker_web::router(web_state);
+    match PublicClient::new(PublicClientConfig::new(
+        DEFAULT_USER_AGENT.to_string(),
+        PacingConfig::from_millis(
+            p.min_interval_ms,
+            p.jitter_lo_ms,
+            p.jitter_hi_ms,
+            p.max_retries,
+            p.base_backoff_ms,
+            p.max_backoff_ms,
+            p.cooldown_after_challenge_ms,
+        ),
+    )) {
+        Ok(public_client) => {
+            let public_state = royaltracker_web::PublicState {
+                repo: repo.clone(),
+                public_client: Arc::new(public_client),
+            };
+            app_router = app_router.merge(royaltracker_web::public_router(public_state));
+            tracing::info!("public no-login tier mounted at /p");
+        }
+        Err(e) => tracing::warn!(error = %e, "could not build public client; /p disabled"),
+    }
+
     tracing::info!(addr = %web_addr, "starting Mini App HTTP server");
     let listener = tokio::net::TcpListener::bind(web_addr)
         .await
         .context("bind web port")?;
     let web_handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, royaltracker_web::router(web_state)).await {
+        if let Err(e) = axum::serve(listener, app_router).await {
             tracing::error!(error = %e, "web server crashed");
         }
     });

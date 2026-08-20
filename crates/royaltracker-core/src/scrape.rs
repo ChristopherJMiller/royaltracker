@@ -1,7 +1,7 @@
 use chrono::Utc;
 use royaltracker_api::{CruiseClient, ProductPrice};
+use royaltracker_notify::{NotifyTarget, Notifier, PriceDropAlert};
 use royaltracker_storage::{CatalogEntry, PriceRepo};
-use royaltracker_telegram::{send_diff, Bot, DiffContext};
 use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, WatchedProduct};
 use std::collections::{HashMap, HashSet};
 use tracing::{info, warn};
@@ -28,7 +28,7 @@ pub struct ScrapeOutcome {
 pub async fn run_scrape_cycle(
     clients_by_brand: &HashMap<Brand, CruiseClient>,
     repo: &(dyn PriceRepo),
-    bot: &Bot,
+    notifier: &dyn Notifier,
     watched: &[WatchedProduct],
     bookings_by_res: &HashMap<String, Booking>,
 ) -> ScrapeOutcome {
@@ -151,21 +151,23 @@ pub async fn run_scrape_cycle(
             .get(&(w.reservation_id.clone(), w.product_code.clone()));
         let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
         let itinerary = itinerary_label(booking);
-        let context = DiffContext {
+        let alert = PriceDropAlert {
             label: &label,
             diff: &diff,
             msrp_label,
             itinerary: Some(&itinerary),
+            manage_url: None,
         };
 
         let mut any_sent = false;
         for chat_id in chat_ids {
-            match send_diff(bot, chat_id, &context).await {
+            let target = NotifyTarget::Telegram { chat_id };
+            match notifier.notify_price_drop(&target, &alert).await {
                 Ok(()) => {
                     diffs_notified += 1;
                     any_sent = true;
                 }
-                Err(e) => warn!(error = %e, chat_id, "telegram send failed"),
+                Err(e) => warn!(error = %e, chat_id, "notify send failed"),
             }
         }
         if any_sent {
