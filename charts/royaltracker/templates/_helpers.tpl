@@ -34,6 +34,32 @@ Shared env block: pulls config from configSecret and database from database.secr
   value: {{ .Values.adminChatId | quote }}
 - name: ROYALTRACKER_JITTER_MINUTES
   value: {{ .Values.jitterMinutes | quote }}
+{{- if .Values.public.enabled }}
+- name: ROYALTRACKER_PUBLIC__ENABLED
+  value: "true"
+- name: ROYALTRACKER_PUBLIC_SWEEP_WINDOW_MINUTES
+  value: {{ .Values.public.sweepWindowMinutes | quote }}
+{{- with .Values.public.tunnelHostname }}
+- name: ROYALTRACKER_PUBLIC__TUNNEL_HOSTNAME
+  value: {{ . | quote }}
+{{- end }}
+- name: ROYALTRACKER_PUBLIC__TURNSTILE_SITE_KEY
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: turnstile_site_key } }
+- name: ROYALTRACKER_PUBLIC__TURNSTILE_SECRET
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: turnstile_secret } }
+- name: ROYALTRACKER_PUBLIC__DEVICE_COOKIE_KEY_B64
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: device_cookie_key_b64 } }
+{{- if .Values.public.useLeastPrivRole }}
+- name: ROYALTRACKER_PUBLIC__PUBLIC_DATABASE_URL
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: public_database_url } }
+{{- end }}
+- name: ROYALTRACKER_NOTIFY__WEB_PUSH__VAPID_PRIVATE_KEY_B64
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: vapid_private_key_b64 } }
+- name: ROYALTRACKER_NOTIFY__WEB_PUSH__VAPID_PUBLIC_KEY_B64
+  valueFrom: { secretKeyRef: { name: {{ .Values.configSecret.name }}, key: vapid_public_key_b64 } }
+- name: ROYALTRACKER_NOTIFY__WEB_PUSH__VAPID_SUBJECT
+  value: {{ required "public.vapidSubject is required when public.enabled" .Values.public.vapidSubject | quote }}
+{{- end }}
 - name: RUST_LOG
   value: "{{ .Values.logLevel }},royaltracker={{ .Values.logLevel }}"
 {{- end -}}

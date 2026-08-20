@@ -64,6 +64,32 @@ adminChatId: 0
 # Scraper jitter window (minutes); 0 = fire immediately, useful for one-off runs.
 jitterMinutes: 10
 
+# ---------------------------------------------------------------------------
+# No-login public tier (served by the bot pod at /p and /public/*).
+# Disabled by default so a misconfigured value can't take down the bot.
+# When enabled, these secret keys must ALSO exist in the configSecret:
+#   turnstile_site_key, turnstile_secret, device_cookie_key_b64,
+#   vapid_private_key_b64, vapid_public_key_b64, and optionally public_database_url.
+# ---------------------------------------------------------------------------
+public:
+  enabled: false
+  # Cloudflare Tunnel hostname the public app is served on (for links/CORS).
+  tunnelHostname: ""              # e.g. "prices.example.com"
+  # VAPID `sub` claim for Web Push.
+  vapidSubject: ""               # e.g. "mailto:you@example.com"
+  # Read-only lookup needs none of the secret keys; subscribe/push do.
+  # Connect the public router via a least-privilege DB role (migration 0011).
+  useLeastPrivRole: false        # when true, reads public_database_url from configSecret
+  # Minutes to drip the daily public sweep across (matches the scraper job window).
+  sweepWindowMinutes: 150
+  # In-cluster cloudflared tunnel connector (inbound only; scraper egress stays home).
+  cloudflared:
+    enabled: false
+    image: cloudflare/cloudflared:latest
+    replicas: 2
+    # Secret holding the tunnel token under key `token` (from the OpenTofu output).
+    tokenSecretName: royaltracker-cloudflared
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65534

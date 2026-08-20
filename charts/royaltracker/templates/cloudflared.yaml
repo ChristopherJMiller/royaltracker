@@ -1,0 +1,38 @@
+{{- if and .Values.public.enabled .Values.public.cloudflared.enabled }}
+# In-cluster Cloudflare Tunnel connector. INBOUND only: it dials out to
+# Cloudflare and routes the public hostname to the bot Service. The scraper's
+# cruise-line egress stays on the node's (home) IP and never goes through here.
+# Route config (hostname -> service) lives in the OpenTofu tunnel config, not here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: royaltracker-cloudflared
+  labels: {{- include "royaltracker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.public.cloudflared.replicas }}
+  selector:
+    matchLabels:
+      {{- include "royaltracker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cloudflared
+  template:
+    metadata:
+      labels:
+        {{- include "royaltracker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cloudflared
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cloudflared
+          image: {{ .Values.public.cloudflared.image | quote }}
+          args: ["tunnel", "--no-autoupdate", "run", "--token", "$(TUNNEL_TOKEN)"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.public.cloudflared.tokenSecretName }}
+                  key: token
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+{{- end }}
