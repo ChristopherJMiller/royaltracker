@@ -160,8 +160,24 @@ async fn main() -> Result<()> {
                 }
             });
             let subscribe_on = identity.is_some();
+            // Prod hardening: the public router can use a separate least-privilege
+            // DB role (walled off from credential tables). Falls back to the main
+            // pool in dev / when unset.
+            let public_repo = match cfg.public.as_ref().and_then(|p| p.public_database_url.clone()) {
+                Some(url) => match connect(&url).await {
+                    Ok(r) => {
+                        tracing::info!("public tier using least-privilege DB pool");
+                        Arc::new(r)
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "public_database_url connect failed; using main pool");
+                        repo.clone()
+                    }
+                },
+                None => repo.clone(),
+            };
             let public_state = royaltracker_web::PublicState {
-                repo: repo.clone(),
+                repo: public_repo,
                 public_client: Arc::new(public_client),
                 identity,
             };
