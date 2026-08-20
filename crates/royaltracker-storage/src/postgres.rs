@@ -908,6 +908,17 @@ impl PriceRepo for PostgresRepo {
         Ok(res.rows_affected() > 0)
     }
 
+    async fn deactivate_channel_by_endpoint(&self, endpoint: &str) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"UPDATE public_subscriptions SET active = FALSE
+               WHERE channel_id IN (SELECT id FROM public_channels WHERE endpoint = $1)"#,
+        )
+        .bind(endpoint)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn insert_sailing_diff(&self, d: &SailingDiff) -> Result<i64, StorageError> {
         let row = sqlx::query(
             r#"INSERT INTO sailing_diffs (tracked_id, detected_at, old_price, new_price, delta_pct, notified)

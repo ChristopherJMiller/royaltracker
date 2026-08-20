@@ -202,6 +202,9 @@ pub trait PriceRepo: Send + Sync + 'static {
         subscription_id: i64,
         device_token: &str,
     ) -> Result<bool, StorageError>;
+    /// Deactivate every subscription on a channel by its endpoint. Called by the
+    /// sweep when a web-push endpoint returns 404/410 (dead) — NOT device-scoped.
+    async fn deactivate_channel_by_endpoint(&self, endpoint: &str) -> Result<(), StorageError>;
 
     // --- sailing diffs ---
     async fn insert_sailing_diff(&self, d: &SailingDiff) -> Result<i64, StorageError>;

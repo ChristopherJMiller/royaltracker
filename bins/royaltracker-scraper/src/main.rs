@@ -7,7 +7,7 @@ use royaltracker_core::{
     discover_with_clients, run_public_sweep, run_scrape_cycle, sleep_with_jitter, PublicSweepConfig,
 };
 use royaltracker_crypto::Cipher;
-use royaltracker_notify::{Dispatcher, Notifier};
+use royaltracker_notify::{Dispatcher, Notifier, WebPushChannel};
 use royaltracker_storage::{connect, DefaultRepo, PriceRepo};
 use royaltracker_telegram::bot;
 use royaltracker_types::{Booking, Brand, User};
@@ -44,7 +44,16 @@ async fn main() -> Result<()> {
 
     let cipher = Cipher::from_base64(&cfg.encryption_key_b64).context("encryption_key_b64")?;
     let bot = bot(&cfg.telegram.bot_token);
-    let dispatcher = Dispatcher::new().with_telegram(bot.clone());
+    let mut dispatcher = Dispatcher::new().with_telegram(bot.clone());
+    if let Some(wp) = &cfg.notify.web_push {
+        match WebPushChannel::new(wp.vapid_private_key_b64.clone(), wp.vapid_subject.clone()) {
+            Ok(ch) => {
+                dispatcher = dispatcher.with_web_push(ch);
+                info!("web-push channel enabled");
+            }
+            Err(e) => warn!(error = %e, "web push disabled: bad VAPID key"),
+        }
+    }
 
     // Phase P (always runs): the public no-login sweep. Fetches each distinct
     // tracked sailing's public promo prices once and fans out to subscribers.

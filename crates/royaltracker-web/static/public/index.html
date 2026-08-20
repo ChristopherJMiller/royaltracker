@@ -71,16 +71,12 @@
 <dialog id="subDlg">
   <h3 style="margin:0 0 4px" id="subTitle">Track this price</h3>
   <p class="sub" id="subProduct"></p>
-  <div class="seg" id="chanSeg">
-    <button data-ch="email" aria-pressed="true">Email me</button>
-    <button data-ch="webpush" id="pushBtn">Browser push</button>
-  </div>
-  <div id="emailWrap"><label for="subEmail">Email address</label><input id="subEmail" type="email" placeholder="you@example.com"></div>
+  <p class="sub" id="subExplain" style="margin:10px 0">Get a browser notification when this price drops. On iPhone, add this page to your Home Screen first. Prefer Telegram? Use the bot instead.</p>
   <div id="tsWrap" style="margin:12px 0"></div>
   <div class="status" id="subStatus"></div>
   <div style="display:flex; gap:8px; margin-top:6px">
     <button class="ghost" id="subCancel" style="flex:1">Cancel</button>
-    <button class="primary" id="subGo" style="flex:2">Notify me on a drop</button>
+    <button class="primary" id="subGo" style="flex:2">🔔 Notify me on a drop</button>
   </div>
 </dialog>
 
@@ -88,7 +84,7 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var brandSel=$('brand'), shipSel=$('ship'), dateSel=$('date'), status=$('status'), results=$('results');
-  var allShips=[], cfg={subscribe_enabled:false}, tsWidgetId=null, chan='email', current=null;
+  var allShips=[], cfg={subscribe_enabled:false}, tsWidgetId=null, current=null;
 
   function setStatus(t){ status.textContent=t||''; }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -100,7 +96,6 @@
       sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js'; sc.async=true; sc.defer=true;
       document.head.appendChild(sc);
     }
-    if (!(cfg.subscribe_enabled && cfg.vapid_public_key)) { var pb=$('pushBtn'); if(pb) pb.classList.add('hidden'); }
   }).catch(function(){});
 
   function loadShips(){ fetch('/public/ships').then(function(r){return r.json();}).then(function(s){allShips=s;renderShips();}).catch(function(){setStatus('Could not load ships.');}); }
@@ -155,13 +150,11 @@
   function openSub(brand,ship,date,code,cat,label){
     current={brand:brand,ship:ship,sail_date:date,product_code:code,category:cat,label:label};
     $('subProduct').textContent=label+' · '+ship+' '+date;
-    $('subStatus').textContent=''; setChan('email');
+    $('subStatus').textContent='';
     $('tsWrap').innerHTML='';
     if(window.turnstile && cfg.turnstile_site_key){ tsWidgetId=window.turnstile.render('#tsWrap',{sitekey:cfg.turnstile_site_key}); }
     dlg.showModal();
   }
-  function setChan(c){ chan=c; Array.prototype.forEach.call($('chanSeg').children,function(b){b.setAttribute('aria-pressed', b.dataset.ch===c);}); $('emailWrap').classList.toggle('hidden', c!=='email'); }
-  Array.prototype.forEach.call($('chanSeg').children,function(b){ b.addEventListener('click',function(){ setChan(b.dataset.ch); }); });
   $('subCancel').addEventListener('click',function(){ dlg.close(); });
 
   function tsToken(){ return (window.turnstile && tsWidgetId!=null) ? window.turnstile.getResponse(tsWidgetId) : null; }
@@ -170,22 +163,16 @@
   $('subGo').addEventListener('click', function(){
     var token=tsToken();
     if(cfg.turnstile_site_key && !token){ $('subStatus').textContent='Please complete the challenge.'; return; }
-    var body=Object.assign({channel:chan, turnstile_token:token, alert_mode:'any_drop'}, current);
-    $('subStatus').textContent='Saving…';
-    var chain=Promise.resolve();
-    if(chan==='email'){
-      var em=$('subEmail').value.trim();
-      if(em.indexOf('@')<0){ $('subStatus').textContent='Enter a valid email.'; return; }
-      body.email=em;
-    } else {
-      chain=enablePush().then(function(sub){ body.push=sub; });
-    }
-    chain.then(function(){
+    if(!cfg.vapid_public_key){ $('subStatus').textContent='Browser push isn\'t configured — use the Telegram bot.'; return; }
+    var body=Object.assign({channel:'webpush', turnstile_token:token, alert_mode:'any_drop'}, current);
+    $('subStatus').textContent='Enabling notifications…';
+    enablePush().then(function(sub){
+      body.push=sub;
       return fetch('/public/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     }).then(function(r){
       if(r.ok){ $('subStatus').textContent='✓ You\'ll be notified on a drop.'; setTimeout(function(){dlg.close();},900); }
       else return r.text().then(function(t){ $('subStatus').textContent='Failed: '+t; });
-    }).catch(function(e){ $('subStatus').textContent='Failed: '+e.message; });
+    }).catch(function(e){ $('subStatus').textContent=e.message+' — try the Telegram bot instead.'; });
   });
 
   function enablePush(){

@@ -100,15 +100,12 @@ impl TelegramChannel {
 }
 
 /// Routes an alert to the channel matching its `NotifyTarget` variant. Channels
-/// that aren't configured/compiled return `Permanent` so the caller can log and
-/// move on without failing the whole sweep.
+/// that aren't configured return `Permanent` so the caller can log and move on
+/// without failing the whole sweep.
 #[derive(Default)]
 pub struct Dispatcher {
     telegram: Option<TelegramChannel>,
-    #[cfg(feature = "webpush")]
     web_push: Option<webpush::WebPushChannel>,
-    #[cfg(feature = "email")]
-    email: Option<email::EmailChannel>,
 }
 
 impl Dispatcher {
@@ -118,6 +115,11 @@ impl Dispatcher {
 
     pub fn with_telegram(mut self, bot: Bot) -> Self {
         self.telegram = Some(TelegramChannel::new(bot));
+        self
+    }
+
+    pub fn with_web_push(mut self, channel: webpush::WebPushChannel) -> Self {
+        self.web_push = Some(channel);
         self
     }
 }
@@ -134,19 +136,12 @@ impl Notifier for Dispatcher {
                 Some(c) => c.send_price_drop(*chat_id, alert).await,
                 None => Err(NotifyError::Permanent("telegram not configured".into())),
             },
-            NotifyTarget::WebPush(_sub) => {
-                #[cfg(feature = "webpush")]
-                if let Some(c) = &self.web_push {
-                    return c.send_price_drop(_sub, alert).await;
-                }
-                Err(NotifyError::Permanent("web push not configured".into()))
-            }
-            NotifyTarget::Email { address: _address } => {
-                #[cfg(feature = "email")]
-                if let Some(c) = &self.email {
-                    return c.send_price_drop(_address, alert).await;
-                }
-                Err(NotifyError::Permanent("email not configured".into()))
+            NotifyTarget::WebPush(sub) => match &self.web_push {
+                Some(c) => c.send_price_drop(sub, alert).await,
+                None => Err(NotifyError::Permanent("web push not configured".into())),
+            },
+            NotifyTarget::Email { .. } => {
+                Err(NotifyError::Permanent("email channel not supported".into()))
             }
         }
     }
@@ -170,7 +165,5 @@ impl Notifier for Dispatcher {
     }
 }
 
-#[cfg(feature = "webpush")]
-mod webpush;
-#[cfg(feature = "email")]
-mod email;
+pub mod webpush;
+pub use webpush::WebPushChannel;

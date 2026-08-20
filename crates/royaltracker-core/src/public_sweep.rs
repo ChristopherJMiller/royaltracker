@@ -5,7 +5,7 @@
 
 use chrono::{NaiveDate, Utc};
 use royaltracker_api::{PublicClient, PublicFetch, PublicProduct};
-use royaltracker_notify::{NotifyTarget, Notifier, PriceDropAlert, PushSubscription};
+use royaltracker_notify::{NotifyError, NotifyTarget, Notifier, PriceDropAlert, PushSubscription};
 use royaltracker_storage::{PriceRepo, SailingDiff, SailingSnapshot, ScrapeTarget};
 use royaltracker_types::{AlertMode, Brand, Diff, PublicChannelKind};
 use std::collections::HashMap;
@@ -241,9 +241,13 @@ async fn sweep_one(
                 outcome.diffs_notified += 1;
                 any_sent = true;
             }
+            Err(NotifyError::SubscriptionGone) => {
+                // Dead web-push endpoint (404/410): deactivate all subscriptions
+                // on it so we stop trying.
+                warn!(endpoint = %sub.endpoint, "push endpoint gone; deactivating");
+                let _ = repo.deactivate_channel_by_endpoint(&sub.endpoint).await;
+            }
             Err(e) => {
-                // Web-push/email delivery + dead-endpoint cleanup arrive with the
-                // identity phase; for now just log.
                 warn!(subscription_id = sub.subscription_id, error = %e, "public notify failed");
             }
         }

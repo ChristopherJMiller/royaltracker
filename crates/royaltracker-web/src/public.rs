@@ -324,9 +324,14 @@ async fn subscribe(
     let brand = parse_brand(&body.brand)?;
     let date = parse_date(&body.sail_date)?;
     let kind = match body.channel.as_str() {
-        "email" => PublicChannelKind::Email,
         "webpush" => PublicChannelKind::WebPush,
-        _ => return Err((StatusCode::BAD_REQUEST, "channel must be email|webpush".into())),
+        "email" => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "email isn't supported — use browser push or the Telegram bot".into(),
+            ))
+        }
+        _ => return Err((StatusCode::BAD_REQUEST, "channel must be webpush".into())),
     };
     let alert_mode = body
         .alert_mode
