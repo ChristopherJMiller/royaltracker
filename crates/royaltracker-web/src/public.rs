@@ -21,6 +21,7 @@ use royaltracker_types::{AlertMode, Brand, PublicChannelKind};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::device;
 
@@ -66,10 +67,71 @@ impl PublicIdentity {
     }
 }
 
-/// Cached Princess schedule with the time it was fetched.
-pub type ScheduleCache = Arc<tokio::sync::RwLock<Option<(std::time::Instant, Vec<PrincessVoyage>)>>>;
+/// Cached Princess schedule. The state lock is held only to read or swap in a
+/// result, never across a fetch; `refresh` lets exactly one request refetch
+/// while the others keep serving the stale copy.
+#[derive(Clone, Default)]
+pub struct ScheduleCache {
+    state: Arc<std::sync::Mutex<ScheduleState>>,
+    refresh: Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Default)]
+struct ScheduleState {
+    /// Last good schedule and when it was fetched.
+    data: Option<(Instant, Arc<Vec<PrincessVoyage>>)>,
+    /// After a failed refresh, don't refetch before this.
+    retry_after: Option<Instant>,
+}
 
 const SCHEDULE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// Back-off after a failed schedule refresh.
+const SCHEDULE_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// What a schedule request should do, given the cache state.
+#[derive(Debug, PartialEq, Eq)]
+enum ScheduleStep {
+    /// The cached copy is fresh.
+    Serve,
+    /// Stale or absent, and no recent failure: refetch.
+    Refresh,
+    /// Stale, but a refresh failed recently: serve the stale copy without fetching.
+    ServeStale,
+    /// Nothing cached and a refresh failed recently.
+    Unavailable,
+}
+
+fn schedule_step(fetched_at: Option<Instant>, retry_after: Option<Instant>, now: Instant) -> ScheduleStep {
+    if fetched_at.is_some_and(|at| now.saturating_duration_since(at) < SCHEDULE_TTL) {
+        return ScheduleStep::Serve;
+    }
+    let blocked = retry_after.is_some_and(|t| now < t);
+    match (fetched_at.is_some(), blocked) {
+        (_, false) => ScheduleStep::Refresh,
+        (true, true) => ScheduleStep::ServeStale,
+        (false, true) => ScheduleStep::Unavailable,
+    }
+}
+
+impl ScheduleCache {
+    /// The current step plus the cached copy (fresh or stale), if any.
+    fn peek(&self) -> (ScheduleStep, Option<Arc<Vec<PrincessVoyage>>>) {
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let step = schedule_step(st.data.as_ref().map(|(at, _)| *at), st.retry_after, Instant::now());
+        (step, st.data.as_ref().map(|(_, v)| v.clone()))
+    }
+
+    fn store_ok(&self, v: Arc<Vec<PrincessVoyage>>) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.data = Some((Instant::now(), v));
+        st.retry_after = None;
+    }
+
+    fn store_failure(&self) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.retry_after = Some(Instant::now() + SCHEDULE_RETRY_AFTER);
+    }
+}
 
 #[derive(Clone)]
 pub struct PublicState {
@@ -79,7 +141,8 @@ pub struct PublicState {
     pub public_client: Arc<PublicClient>,
     /// Princess guest client (schedule source).
     pub princess: Arc<PrincessGuestClient>,
-    /// Whole Princess schedule, refreshed at most every 24 h.
+    /// Whole Princess schedule, refreshed at most every 24 h (30 min back-off
+    /// after a failed refresh).
     pub schedule: ScheduleCache,
     /// None → subscribe/manage disabled (read-only lookup still works).
     pub identity: Option<PublicIdentity>,
@@ -161,36 +224,57 @@ struct SailingOption {
     itinerary: Option<String>,
 }
 
-/// Current schedule, refetched when absent or older than 24 h. A failed refresh
-/// serves the stale copy if there is one.
-async fn princess_schedule(s: &PublicState) -> Result<Vec<PrincessVoyage>, ApiErr> {
-    {
-        let g = s.schedule.read().await;
-        if let Some((at, v)) = g.as_ref() {
-            if at.elapsed() < SCHEDULE_TTL {
-                return Ok(v.clone());
+fn schedule_unavailable() -> ApiErr {
+    (StatusCode::BAD_GATEWAY, "schedule temporarily unavailable".into())
+}
+
+/// Current schedule, refetched (single attempt) when absent or older than 24 h.
+/// While one request refreshes, others serve the stale copy. A failed refresh
+/// serves the stale copy (or 502 when there is none) and isn't retried for
+/// 30 min.
+async fn princess_schedule(s: &PublicState) -> Result<Arc<Vec<PrincessVoyage>>, ApiErr> {
+    let cache = &s.schedule;
+    let (step, data) = cache.peek();
+    match (step, data) {
+        (ScheduleStep::Refresh, data) => {
+            let _guard = match cache.refresh.try_lock() {
+                Ok(g) => g,
+                Err(_) => match data {
+                    // Another request is refreshing: serve the stale copy meanwhile.
+                    Some(v) => return Ok(v),
+                    // Nothing to serve: wait for that refresh, then re-check.
+                    None => cache.refresh.lock().await,
+                },
+            };
+            // A refresh may have completed since the first peek.
+            let (step, data) = cache.peek();
+            match (step, data) {
+                (ScheduleStep::Refresh, stale) => match s.princess.fetch_schedule().await {
+                    Ok(v) => {
+                        let v = Arc::new(v);
+                        cache.store_ok(v.clone());
+                        Ok(v)
+                    }
+                    Err(e) => {
+                        cache.store_failure();
+                        match stale {
+                            Some(v) => {
+                                tracing::warn!(error = %e, "princess schedule refresh failed; serving stale");
+                                Ok(v)
+                            }
+                            None => {
+                                tracing::warn!(error = %e, "princess schedule fetch failed");
+                                Err(schedule_unavailable())
+                            }
+                        }
+                    }
+                },
+                (_, Some(v)) => Ok(v),
+                (_, None) => Err(schedule_unavailable()),
             }
         }
-    }
-    let mut g = s.schedule.write().await;
-    // Another request may have refreshed while we waited for the write lock.
-    if let Some((at, v)) = g.as_ref() {
-        if at.elapsed() < SCHEDULE_TTL {
-            return Ok(v.clone());
-        }
-    }
-    match s.princess.fetch_schedule().await {
-        Ok(v) => {
-            *g = Some((std::time::Instant::now(), v.clone()));
-            Ok(v)
-        }
-        Err(e) => match g.as_ref() {
-            Some((_, v)) => {
-                tracing::warn!(error = %e, "princess schedule refresh failed; serving stale");
-                Ok(v.clone())
-            }
-            None => Err((StatusCode::BAD_GATEWAY, format!("schedule: {e}"))),
-        },
+        (_, Some(v)) => Ok(v),
+        (_, None) => Err(schedule_unavailable()),
     }
 }
 
@@ -287,6 +371,29 @@ mod tests {
         assert!(find_voyage(&s, "RU", d, "4702A").is_none());
         assert!(find_voyage(&s, "ST", NaiveDate::from_ymd_opt(2027, 1, 3).unwrap(), "4702A").is_none());
         assert!(find_voyage(&s, "ST", d, "NOPE").is_none());
+    }
+
+    #[test]
+    fn schedule_step_decisions() {
+        use std::time::Duration as StdDuration;
+        let now = Instant::now() + StdDuration::from_secs(100 * 3600);
+        let fresh = Some(now - StdDuration::from_secs(3600));
+        let stale = Some(now - SCHEDULE_TTL - StdDuration::from_secs(1));
+        let failed_recently = Some(now + StdDuration::from_secs(60));
+        let failed_long_ago = Some(now - StdDuration::from_secs(60));
+
+        // Fresh → serve (even with a pending back-off).
+        assert_eq!(schedule_step(fresh, None, now), ScheduleStep::Serve);
+        assert_eq!(schedule_step(fresh, failed_recently, now), ScheduleStep::Serve);
+        // Stale and not retry-blocked → refresh.
+        assert_eq!(schedule_step(stale, None, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(stale, failed_long_ago, now), ScheduleStep::Refresh);
+        // Failed recently → serve stale without fetching.
+        assert_eq!(schedule_step(stale, failed_recently, now), ScheduleStep::ServeStale);
+        // Nothing cached → refresh, unless a fetch failed recently → error.
+        assert_eq!(schedule_step(None, None, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(None, failed_long_ago, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(None, failed_recently, now), ScheduleStep::Unavailable);
     }
 
     #[test]

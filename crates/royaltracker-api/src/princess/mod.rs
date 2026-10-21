@@ -104,30 +104,28 @@ impl PrincessGuestClient {
     }
 
     /// The whole public schedule (all ships, ~2 years). Gateway headers only; no SFCC token.
+    /// A single paced attempt with no retry/backoff: it is fetched on a web
+    /// request path, and the caller caches the result and backs off on failure.
     pub async fn fetch_schedule(&self) -> Result<Vec<PrincessVoyage>, ApiError> {
-        let text = retry_with_pacing(&self.pacing, || async {
-            self.limiter.wait().await;
-            let resp = self
-                .http
-                .get(SCHEDULE_URL)
-                .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Accept", "application/json")
-                .header("BookingCompany", "PC")
-                .header("ProductCompany", "PC")
-                .header("ReqSrc", "W")
-                .header("pcl-client-id", PCL_CLIENT_ID)
-                .header("Origin", ORIGIN)
-                .send()
-                .await?;
-            let status = resp.status();
-            let body = resp.text().await?;
-            if !status.is_success() || is_bot_challenge(&body) {
-                return Err(ApiError::Status { status: status.as_u16(), body });
-            }
-            Ok(body)
-        })
-        .await?;
-        Ok(parse_schedule(&serde_json::from_str(&text)?))
+        self.limiter.wait().await;
+        let resp = self
+            .http
+            .get(SCHEDULE_URL)
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Accept", "application/json")
+            .header("BookingCompany", "PC")
+            .header("ProductCompany", "PC")
+            .header("ReqSrc", "W")
+            .header("pcl-client-id", PCL_CLIENT_ID)
+            .header("Origin", ORIGIN)
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        if !status.is_success() || is_bot_challenge(&body) {
+            return Err(ApiError::Status { status: status.as_u16(), body });
+        }
+        Ok(parse_schedule(&serde_json::from_str(&body)?))
     }
 
     async fn search_all(
