@@ -4,7 +4,7 @@
 #![cfg(feature = "sqlite")]
 
 use chrono::{NaiveDate, Utc};
-use royaltracker_storage::{connect, NewPublicChannel, PriceRepo, SailingSnapshot};
+use royaltracker_storage::{connect, NewPublicChannel, PriceRepo, SailingKey, SailingSnapshot};
 use royaltracker_types::{AlertMode, Brand, PublicChannelKind};
 
 async fn repo() -> impl PriceRepo {
@@ -17,10 +17,11 @@ async fn repo() -> impl PriceRepo {
 async fn public_subscription_roundtrip() {
     let r = repo().await;
     let date = NaiveDate::from_ymd_opt(2027, 5, 7).unwrap();
+    let key = SailingKey { brand: Brand::Royal, ship_code: "OA", sail_date: date, voyage_code: None };
 
     // Sailing + tracked product (public scope).
-    let sailing_id = r.upsert_sailing(Brand::Royal, "OA", date).await.unwrap();
-    assert!(r.get_sailing(Brand::Royal, "OA", date).await.unwrap().is_some());
+    let sailing_id = r.upsert_sailing(&key, None).await.unwrap();
+    assert!(r.get_sailing(&key).await.unwrap().is_some());
     let tracked_id = r
         .upsert_tracked_product(sailing_id, "3222", "beverage", Some("Deluxe Beverage"), None)
         .await
@@ -47,7 +48,7 @@ async fn public_subscription_roundtrip() {
     )
     .await
     .unwrap();
-    let prices = r.latest_sailing_prices(Brand::Royal, "OA", date).await.unwrap();
+    let prices = r.latest_sailing_prices(&key).await.unwrap();
     assert_eq!(prices.len(), 1);
     assert_eq!(prices[0].promo_price, Some(87.99));
 
@@ -89,7 +90,8 @@ async fn public_subscription_roundtrip() {
 async fn fetch_failure_increments_counter() {
     let r = repo().await;
     let date = NaiveDate::from_ymd_opt(2027, 1, 1).unwrap();
-    let sid = r.upsert_sailing(Brand::Celebrity, "AX", date).await.unwrap();
+    let key = SailingKey { brand: Brand::Celebrity, ship_code: "AX", sail_date: date, voyage_code: None };
+    let sid = r.upsert_sailing(&key, None).await.unwrap();
     let tid = r.upsert_tracked_product(sid, "Y8UG", "drinks", None, None).await.unwrap();
 
     // A tracked product with no snapshot is due to be scraped.
@@ -120,4 +122,40 @@ async fn fetch_failure_increments_counter() {
     let due3 = r.list_sailings_to_scrape().await.unwrap();
     let t3 = due3.iter().find(|t| t.tracked_id == tid).unwrap();
     assert_eq!(t3.consecutive_failures, 0);
+}
+
+#[tokio::test]
+async fn public_prices_use_sailing_currency_and_unit_label() {
+    let r = repo().await;
+    let date = NaiveDate::from_ymd_opt(2027, 1, 2).unwrap();
+    let snap = |tracked_id, price: f64, raw: serde_json::Value| SailingSnapshot {
+        tracked_id,
+        fetched_at: Utc::now(),
+        adult_promo_price: Some(price),
+        child_promo_price: None,
+        base_price: None,
+        promo_present: true,
+        raw_response: raw,
+    };
+
+    // Princess AUD voyage with a per-day unit in the snapshot's raw_response.
+    let pk = SailingKey { brand: Brand::Princess, ship_code: "ST", sail_date: date, voyage_code: Some("4702A") };
+    let sid = r.upsert_sailing(&pk, Some("AUD")).await.unwrap();
+    let tid = r.upsert_tracked_product(sid, "WIFI-1", "extras", Some("Wi-Fi"), None).await.unwrap();
+    r.record_public_price(tid, &snap(tid, 24.94, serde_json::json!({"unit_label": "per person / day"})))
+        .await
+        .unwrap();
+    let p = r.latest_sailing_prices(&pk).await.unwrap();
+    assert_eq!(p.len(), 1);
+    assert_eq!(p[0].price_label.as_deref(), Some("AUD 24.94"));
+    assert_eq!(p[0].unit_label.as_deref(), Some("per person / day"));
+
+    // RCG (NULL currency) keeps "$" and has no unit.
+    let rk = SailingKey { brand: Brand::Royal, ship_code: "OA", sail_date: date, voyage_code: None };
+    let rid = r.upsert_sailing(&rk, None).await.unwrap();
+    let rt = r.upsert_tracked_product(rid, "3222", "beverage", Some("Bev"), None).await.unwrap();
+    r.record_public_price(rt, &snap(rt, 87.99, serde_json::Value::Null)).await.unwrap();
+    let p = r.latest_sailing_prices(&rk).await.unwrap();
+    assert_eq!(p[0].price_label.as_deref(), Some("$87.99"));
+    assert_eq!(p[0].unit_label, None);
 }

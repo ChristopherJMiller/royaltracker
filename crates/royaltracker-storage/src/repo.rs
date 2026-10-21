@@ -1,17 +1,50 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use royaltracker_types::{
-    AlertMode, Booking, Brand, Diff, PriceSnapshot, PublicChannelKind, Sailing, User, WatchedProduct,
+    AlertMode, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
+    Sailing, User, WatchedProduct,
 };
 
 #[derive(Debug, Clone)]
 pub struct NewUser<'a> {
     pub telegram_chat_id: i64,
     pub telegram_username: Option<&'a str>,
-    pub rcg_username: &'a str,
-    pub rcg_password_ct: &'a [u8],
-    pub rcg_password_nonce: &'a [u8],
-    pub brand_pref: Brand,
+}
+
+#[derive(Clone)]
+pub struct NewCruiseAccount<'a> {
+    pub user_id: i64,
+    pub line: CruiseLine,
+    pub login: &'a str,
+    pub password_ct: &'a [u8],
+    pub password_nonce: &'a [u8],
+}
+
+// Never print ciphertext, even by accident via {:?}.
+impl std::fmt::Debug for NewCruiseAccount<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewCruiseAccount")
+            .field("user_id", &self.user_id)
+            .field("line", &self.line)
+            .field("login", &self.login)
+            .finish_non_exhaustive()
+    }
+}
+
+/// An active account together with its (active) owner.
+#[derive(Debug, Clone)]
+pub struct ActiveAccount {
+    pub user: User,
+    pub account: CruiseAccount,
+}
+
+/// Identity of a sailing. `voyage_code: None` is stored as `''`.
+#[derive(Debug, Clone, Copy)]
+pub struct SailingKey<'a> {
+    pub brand: Brand,
+    pub ship_code: &'a str,
+    pub sail_date: NaiveDate,
+    pub voyage_code: Option<&'a str>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +57,12 @@ pub enum StorageError {
     Serde(#[from] serde_json::Error),
     #[error("not found")]
     NotFound,
+    #[error("foreign key check failed after migrations: {0} violation(s)")]
+    ForeignKeyCheck(usize),
+    /// A booking with this reservation id already exists under the other cruise
+    /// line; refuse to overwrite it.
+    #[error("reservation {reservation_id} already belongs to a different cruise line")]
+    CrossLineConflict { reservation_id: String },
 }
 
 #[async_trait]
@@ -33,10 +72,32 @@ pub trait PriceRepo: Send + Sync + 'static {
     // --- users ---
     async fn upsert_user(&self, u: &NewUser<'_>) -> Result<i64, StorageError>;
     async fn get_user_by_chat_id(&self, chat_id: i64) -> Result<Option<User>, StorageError>;
-    async fn list_active_users(&self) -> Result<Vec<User>, StorageError>;
+    /// Marks the user inactive and deletes all of their `cruise_accounts`
+    /// rows (stored logins), in one transaction.
     async fn deactivate_user(&self, chat_id: i64) -> Result<(), StorageError>;
-    async fn set_user_brand(&self, chat_id: i64, brand: Brand) -> Result<(), StorageError>;
 
+    // --- cruise accounts ---
+    /// On conflict `(user_id, line)`: replaces login + credentials, sets
+    /// `active`, clears `last_login_error`.
+    async fn upsert_cruise_account(&self, a: &NewCruiseAccount<'_>) -> Result<i64, StorageError>;
+    async fn list_cruise_accounts(&self, user_id: i64) -> Result<Vec<CruiseAccount>, StorageError>;
+    /// Active accounts whose user is also active.
+    async fn list_active_cruise_accounts(&self) -> Result<Vec<ActiveAccount>, StorageError>;
+    /// Deletes the account and unsubscribes the user from that line's bookings.
+    /// Returns whether an account existed.
+    async fn remove_cruise_account(
+        &self,
+        user_id: i64,
+        line: CruiseLine,
+    ) -> Result<bool, StorageError>;
+    async fn record_login_outcome(
+        &self,
+        account_id: i64,
+        error: Option<&str>,
+    ) -> Result<(), StorageError>;
+
+    /// Errors with `CrossLineConflict` if the reservation exists under the other
+    /// cruise line. Also upserts + links the booking's sailing.
     async fn upsert_booking(&self, booking: &Booking) -> Result<(), StorageError>;
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError>;
     async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError>;
@@ -93,7 +154,13 @@ pub trait PriceRepo: Send + Sync + 'static {
 
     // --- catalog cache (for Mini App browse/search) ---
     async fn upsert_catalog_entry(&self, e: &CatalogEntry) -> Result<(), StorageError>;
-    async fn search_catalog(&self, q: &str, limit: i64) -> Result<Vec<CatalogEntry>, StorageError>;
+    /// Only entries for reservations `user_id` is subscribed to.
+    async fn search_catalog(
+        &self,
+        user_id: i64,
+        q: &str,
+        limit: i64,
+    ) -> Result<Vec<CatalogEntry>, StorageError>;
     async fn list_catalog_by_reservation(&self, reservation_id: &str) -> Result<Vec<CatalogEntry>, StorageError>;
 
     // --- price history (for charts) ---
@@ -106,6 +173,7 @@ pub trait PriceRepo: Send + Sync + 'static {
     // --- deck-plan image cache ---
     async fn get_deck_plan(
         &self,
+        brand: Brand,
         ship_code: &str,
         deck: i32,
     ) -> Result<Option<DeckPlan>, StorageError>;
@@ -118,18 +186,13 @@ pub trait PriceRepo: Send + Sync + 'static {
     // ============================================================
 
     // --- sailings ---
+    /// `currency` is merged with `COALESCE(new, existing)`.
     async fn upsert_sailing(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
+        currency: Option<&str>,
     ) -> Result<i64, StorageError>;
-    async fn get_sailing(
-        &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
-    ) -> Result<Option<Sailing>, StorageError>;
+    async fn get_sailing(&self, k: &SailingKey<'_>) -> Result<Option<Sailing>, StorageError>;
     /// One row per active (sailing, product, scope='') whose sail_date is not
     /// already in the past (1-day grace). Drives the paced public sweep.
     async fn list_sailings_to_scrape(&self) -> Result<Vec<ScrapeTarget>, StorageError>;
@@ -173,9 +236,7 @@ pub trait PriceRepo: Send + Sync + 'static {
     ) -> Result<Vec<NaiveDate>, StorageError>;
     async fn latest_sailing_prices(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
     ) -> Result<Vec<PublicPriceDto>, StorageError>;
 
     // --- channels & subscriptions ---
@@ -215,6 +276,7 @@ pub trait PriceRepo: Send + Sync + 'static {
 /// A resolved cruisedeckplans deck-plan image for a ship + deck.
 #[derive(Debug, Clone)]
 pub struct DeckPlan {
+    pub brand: Brand,
     pub ship_code: String,
     pub deck: i32,
     pub image_url: String,
@@ -268,6 +330,9 @@ pub struct ScrapeTarget {
     /// None == the public promotional series (stored as '').
     pub account_scope: Option<String>,
     pub consecutive_failures: i32,
+    /// `''` in the DB maps to None.
+    pub voyage_code: Option<String>,
+    pub currency: Option<String>,
 }
 
 /// A sailing-level (public/promotional) price observation.
@@ -338,6 +403,9 @@ pub struct PublicSubscriptionRow {
     pub alert_mode: AlertMode,
     pub alert_threshold: Option<f64>,
     pub latest_promo_price: Option<f64>,
+    /// `''` in the DB maps to None.
+    pub voyage_code: Option<String>,
+    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -359,4 +427,6 @@ pub struct PublicPriceDto {
     pub base_price_label: Option<String>,
     pub unit_label: Option<String>,
     pub fetched_at: Option<DateTime<Utc>>,
+    /// From the sailing; None means USD.
+    pub currency: Option<String>,
 }

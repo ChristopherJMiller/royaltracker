@@ -1,4 +1,6 @@
 use chrono::Utc;
+use crate::princess::PrincessPriceCache;
+use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{CruiseClient, ProductPrice};
 use royaltracker_notify::{NotifyTarget, Notifier, PriceDropAlert};
 use royaltracker_storage::{CatalogEntry, PriceRepo};
@@ -27,6 +29,7 @@ pub struct ScrapeOutcome {
 /// is skipped with a warning.
 pub async fn run_scrape_cycle(
     clients_by_brand: &HashMap<Brand, CruiseClient>,
+    princess: Option<&PrincessGuestClient>,
     repo: &(dyn PriceRepo),
     notifier: &dyn Notifier,
     watched: &[WatchedProduct],
@@ -56,6 +59,7 @@ pub async fn run_scrape_cycle(
     // Cache subscriber lookups per reservation so a booking with many
     // watched products only hits the join once.
     let mut subscribers_cache: HashMap<String, Vec<i64>> = HashMap::new();
+    let mut princess_cache = PrincessPriceCache::default();
 
     for w in watched {
         let Some(booking) = bookings_by_res.get(&w.reservation_id) else {
@@ -67,39 +71,72 @@ pub async fn run_scrape_cycle(
             continue;
         };
 
-        let Some(api) = clients_by_brand.get(&booking.brand) else {
-            warn!(
-                watched_id = w.id,
-                brand = %booking.brand,
-                "no authenticated client for brand; skipping"
-            );
-            continue;
-        };
-
-        let Some(passenger_id) = booking.passenger_id.as_deref() else {
-            warn!(watched_id = w.id, "booking has no passenger_id; skipping");
-            continue;
-        };
-
-        let price = match api
-            .fetch_product_price(
-                &booking.ship_code,
-                &w.category_prefix,
-                &w.product_code,
-                &w.reservation_id,
-                passenger_id,
-                booking.sail_date,
-            )
-            .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(error = %e, watched_id = w.id, "product fetch failed");
+        // The unit comes from the live Princess product; RCG falls back to the
+        // catalog entry's unit (below).
+        let (current, live_unit) = if booking.brand == Brand::Princess {
+            // Princess never uses the RCG client pool.
+            let Some(pc) = princess else {
+                warn!(watched_id = w.id, "no Princess client; skipping");
                 continue;
-            }
-        };
+            };
+            let Some(voyage) = booking.voyage_code.as_deref() else {
+                warn!(watched_id = w.id, "Princess booking has no voyage_code; skipping");
+                continue;
+            };
+            let currency = booking.currency.as_deref().unwrap_or("USD");
+            let products = match princess_cache.products(pc, voyage, currency).await {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(error = %e, watched_id = w.id, "princess product fetch failed");
+                    continue;
+                }
+            };
+            let Some(product) = products.get(&w.product_code) else {
+                warn!(watched_id = w.id, product = %w.product_code, "product not in Princess catalog; skipping");
+                continue;
+            };
+            let snap = PriceSnapshot {
+                watched_id: w.id,
+                fetched_at: Utc::now(),
+                adult_promo_price: product.promo_dollars(),
+                child_promo_price: product.child_cents.map(|c| c as f64 / 100.0),
+                raw_response: serde_json::to_value(product).unwrap_or(serde_json::Value::Null),
+            };
+            (snap, product.unit_label.clone())
+        } else {
+            let Some(api) = clients_by_brand.get(&booking.brand) else {
+                warn!(
+                    watched_id = w.id,
+                    brand = %booking.brand,
+                    "no authenticated client for brand; skipping"
+                );
+                continue;
+            };
 
-        let current = into_snapshot(w.id, &price);
+            let Some(passenger_id) = booking.passenger_id.as_deref() else {
+                warn!(watched_id = w.id, "booking has no passenger_id; skipping");
+                continue;
+            };
+
+            let price = match api
+                .fetch_product_price(
+                    &booking.ship_code,
+                    &w.category_prefix,
+                    &w.product_code,
+                    &w.reservation_id,
+                    passenger_id,
+                    booking.sail_date,
+                )
+                .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(error = %e, watched_id = w.id, "product fetch failed");
+                    continue;
+                }
+            };
+            (into_snapshot(w.id, &price), None)
+        };
 
         let previous = repo.latest_snapshot(w.id).await.ok().flatten();
         if let Err(e) = repo.insert_snapshot(&current).await {
@@ -150,6 +187,9 @@ pub async fn run_scrape_cycle(
         let catalog_entry = catalog_index
             .get(&(w.reservation_id.clone(), w.product_code.clone()));
         let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
+        let unit_label = live_unit
+            .as_deref()
+            .or_else(|| catalog_entry.and_then(|e| e.unit_label.as_deref()));
         let itinerary = itinerary_label(booking);
         let alert = PriceDropAlert {
             label: &label,
@@ -157,6 +197,8 @@ pub async fn run_scrape_cycle(
             msrp_label,
             itinerary: Some(&itinerary),
             manage_url: None,
+            currency: booking.currency.as_deref(),
+            unit_label,
         };
 
         let mut any_sent = false;
@@ -197,7 +239,7 @@ pub async fn run_scrape_cycle(
 /// recovered GTY cabin when we have one, otherwise the displayed stateroom
 /// (rendered as "GTY" while unassigned).
 fn itinerary_label(b: &Booking) -> String {
-    let ship = royaltracker_types::ship_name(&b.ship_code).unwrap_or(b.ship_code.as_str());
+    let ship = royaltracker_types::ship_name(b.brand, &b.ship_code).unwrap_or(b.ship_code.as_str());
     let mut s = ship.to_string();
     if let Some(n) = b.nights {
         s.push_str(&format!(" · {n} night{}", if n == 1 { "" } else { "s" }));

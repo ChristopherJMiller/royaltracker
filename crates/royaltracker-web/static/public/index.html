@@ -52,9 +52,9 @@
   <div id="lookup">
     <div class="controls">
       <div><label for="brand">Cruise line</label>
-        <select id="brand"><option value="royal">Royal Caribbean</option><option value="celebrity">Celebrity</option></select></div>
+        <select id="brand"><option value="royal">Royal Caribbean</option><option value="celebrity">Celebrity</option><option value="princess">Princess</option></select></div>
       <div><label for="ship">Ship</label><select id="ship"></select></div>
-      <div class="full"><label for="date">Sailing date</label><select id="date"><option value="">Select a ship first…</option></select></div>
+      <div class="full"><label for="date">Sailing</label><select id="date"><option value="">Select a ship first…</option></select></div>
     </div>
     <div class="status" id="status"></div>
     <div id="results"></div>
@@ -66,7 +66,7 @@
     <p style="margin-top:16px"><a class="link" id="backLink">← Back to lookup</a></p>
   </div>
 </main>
-<footer>Prices are the current public rates for the selected sailing and may differ from your personalized/loyalty pricing. Not affiliated with any cruise line.</footer>
+<footer>Prices are the current public rates for the selected sailing and may differ from your personalized/loyalty pricing. Princess prices shown are the standard rate; Captain Circle loyalty discounts aren't included. Not affiliated with any cruise line.</footer>
 
 <dialog id="subDlg">
   <h3 style="margin:0 0 4px" id="subTitle">Track this price</h3>
@@ -111,22 +111,31 @@
     dateSel.innerHTML='<option value="">Loading dates…</option>'; results.innerHTML='';
     if(!ship) return; setStatus('Loading sail dates…');
     fetch('/public/sailings?brand='+encodeURIComponent(brand)+'&ship='+encodeURIComponent(ship))
-      .then(function(r){return r.json();}).then(function(dates){
+      .then(function(r){return r.json();}).then(function(opts){
         setStatus(''); dateSel.innerHTML='';
-        if(!dates.length){dateSel.innerHTML='<option value="">No dates found</option>';return;}
-        var ph=document.createElement('option'); ph.value=''; ph.textContent='Select a date…'; dateSel.appendChild(ph);
-        dates.forEach(function(d){var o=document.createElement('option');o.value=d;o.textContent=d;dateSel.appendChild(o);});
+        if(!opts.length){dateSel.innerHTML='<option value="">No sailings found</option>';return;}
+        var ph=document.createElement('option'); ph.value=''; ph.textContent='Select a sailing…'; dateSel.appendChild(ph);
+        opts.forEach(function(d){
+          var o=document.createElement('option');
+          if(d.voyage_code){
+            o.value=d.voyage_code;
+            o.textContent=d.sail_date+(d.nights!=null?' · '+d.nights+' nights':'')+(d.itinerary?' · '+d.itinerary:'');
+          } else { o.value=d.sail_date; o.textContent=d.sail_date; }
+          o.dataset.date=d.sail_date; o.dataset.voyage=d.voyage_code||'';
+          dateSel.appendChild(o);
+        });
       }).catch(function(){setStatus('Could not load dates.');dateSel.innerHTML='<option value="">Error</option>';});
   }
   function loadPrices(){
-    var brand=brandSel.value, ship=shipSel.value, date=dateSel.value;
+    var brand=brandSel.value, ship=shipSel.value, opt=dateSel.selectedOptions[0];
+    var date=opt&&opt.dataset.date, voyage=(opt&&opt.dataset.voyage)||'';
     results.innerHTML=''; if(!date) return; setStatus('Fetching current prices…');
-    fetch('/public/prices?brand='+encodeURIComponent(brand)+'&ship='+encodeURIComponent(ship)+'&sail_date='+encodeURIComponent(date))
-      .then(function(r){return r.json();}).then(function(data){
-        setStatus(data.live?'Fresh from the cruise line just now.':'Latest tracked prices.'); render(data,brand,ship,date);
+    fetch('/public/prices?brand='+encodeURIComponent(brand)+'&ship='+encodeURIComponent(ship)+'&sail_date='+encodeURIComponent(date)+(voyage?'&voyage='+encodeURIComponent(voyage):''))
+      .then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error(t);}); return r.json(); }).then(function(data){
+        setStatus(data.live?'Fresh from the cruise line just now.':'Latest tracked prices.'); render(data,brand,ship,date,voyage);
       }).catch(function(){setStatus('Could not load prices.');});
   }
-  function render(data,brand,ship,date){
+  function render(data,brand,ship,date,voyage){
     if(!data.planner_open){results.innerHTML='<div class="empty">The Cruise Planner isn\'t open for this sailing yet.</div>';return;}
     var withPromo=data.prices.filter(function(p){return p.promo_price!=null;});
     var rows=(withPromo.length?withPromo:data.prices);
@@ -136,20 +145,22 @@
       var price=p.price_label?'<span class="promo">'+esc(p.price_label)+'</span>':'<span class="base" style="text-decoration:none">'+esc(p.base_price_label||'—')+'</span>';
       var base=(p.promo_price!=null&&p.base_price_label)?' <span class="base">'+esc(p.base_price_label)+'</span>':'';
       var track=cfg.subscribe_enabled?'<button class="track" data-code="'+esc(p.product_code)+'" data-cat="'+esc(p.category||'')+'" data-label="'+esc(p.title||p.product_code)+'">🔔 Track</button>':'';
-      html+='<tr><td>'+esc(p.title||p.product_code)+'<br><span class="cat">'+esc(p.category||'')+'</span></td><td class="price">'+price+base+'</td><td class="act">'+track+'</td></tr>';
+      var unit=p.unit_label?' <span class="cat">'+esc(p.unit_label)+'</span>':'';
+      html+='<tr><td>'+esc(p.title||p.product_code)+'<br><span class="cat">'+esc(p.category||'')+'</span></td><td class="price">'+price+base+unit+'</td><td class="act">'+track+'</td></tr>';
     });
     html+='</tbody></table>';
     results.innerHTML=html;
     Array.prototype.forEach.call(results.querySelectorAll('button.track'),function(b){
-      b.addEventListener('click',function(){ openSub(brand,ship,date,b.dataset.code,b.dataset.cat,b.dataset.label); });
+      b.addEventListener('click',function(){ openSub(brand,ship,date,voyage,b.dataset.code,b.dataset.cat,b.dataset.label); });
     });
   }
 
   // ---- subscribe ----
   var dlg=$('subDlg');
-  function openSub(brand,ship,date,code,cat,label){
+  function openSub(brand,ship,date,voyage,code,cat,label){
     current={brand:brand,ship:ship,sail_date:date,product_code:code,category:cat,label:label};
-    $('subProduct').textContent=label+' · '+ship+' '+date;
+    if(voyage) current.voyage=voyage;
+    $('subProduct').textContent=label+' · '+ship+' '+date+(voyage?' ('+voyage+')':'');
     $('subStatus').textContent='';
     $('tsWrap').innerHTML='';
     if(window.turnstile && cfg.turnstile_site_key){ tsWidgetId=window.turnstile.render('#tsWrap',{sitekey:cfg.turnstile_site_key}); }
@@ -197,8 +208,8 @@
       list.innerHTML='';
       rows.forEach(function(s){
         var el=document.createElement('div'); el.className='row';
-        var price=s.latest_promo_price!=null?('$'+s.latest_promo_price.toFixed(2)):'—';
-        el.innerHTML='<div><div>'+esc(s.label||s.product_code)+'</div><span class="cat">'+esc(s.ship_code)+' · '+esc(s.sail_date)+' · now '+price+' · '+esc(s.channel_kind)+'</span></div>';
+        var price=s.latest_promo_price!=null?((s.currency&&s.currency!=='USD'?esc(s.currency)+' ':'$')+s.latest_promo_price.toFixed(2)):'—';
+        el.innerHTML='<div><div>'+esc(s.label||s.product_code)+'</div><span class="cat">'+esc(s.ship_code)+' · '+esc(s.sail_date)+(s.voyage_code?' · '+esc(s.voyage_code):'')+' · now '+price+' · '+esc(s.channel_kind)+'</span></div>';
         var b=document.createElement('button'); b.className='ghost'; b.textContent='Remove';
         b.addEventListener('click',function(){ fetch('/public/subscriptions/'+s.subscription_id,{method:'DELETE'}).then(function(){ el.remove(); }); });
         el.appendChild(b); list.appendChild(el);

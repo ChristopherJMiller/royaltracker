@@ -4,6 +4,7 @@
 //! silent-freeze bug) rather than swallowed.
 
 use chrono::{NaiveDate, Utc};
+use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{PublicClient, PublicFetch, PublicProduct};
 use royaltracker_notify::{NotifyError, NotifyTarget, Notifier, PriceDropAlert, PushSubscription};
 use royaltracker_storage::{PriceRepo, SailingDiff, SailingSnapshot, ScrapeTarget};
@@ -13,6 +14,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::diff::{MIN_DROP_ABS, MIN_DROP_PCT};
+use crate::princess::{princess_fetch_outcome, PrincessPriceCache};
 
 pub struct PublicSweepConfig {
     /// Total wall-clock window to spread the sweep across (drip).
@@ -67,13 +69,14 @@ fn map_target(kind: PublicChannelKind, endpoint: &str, p256dh: Option<&str>, aut
     }
 }
 
-fn sailing_label(ship_code: &str, sail_date: NaiveDate) -> String {
-    let ship = royaltracker_types::ship_name(ship_code).unwrap_or(ship_code);
+fn sailing_label(brand: Brand, ship_code: &str, sail_date: NaiveDate) -> String {
+    let ship = royaltracker_types::ship_name(brand, ship_code).unwrap_or(ship_code);
     format!("{ship} · {}", sail_date.format("%b %-d, %Y"))
 }
 
 pub async fn run_public_sweep(
     client: &PublicClient,
+    princess: Option<&PrincessGuestClient>,
     repo: &dyn PriceRepo,
     notifier: &dyn Notifier,
     cfg: &PublicSweepConfig,
@@ -89,10 +92,10 @@ pub async fn run_public_sweep(
     };
 
     // One fetch per distinct sailing serves every tracked product on it.
-    let mut groups: HashMap<(Brand, String, NaiveDate), Vec<ScrapeTarget>> = HashMap::new();
+    let mut groups: HashMap<(Brand, String, NaiveDate, Option<String>), Vec<ScrapeTarget>> = HashMap::new();
     for t in targets {
         groups
-            .entry((t.brand, t.ship_code.clone(), t.sail_date))
+            .entry((t.brand, t.ship_code.clone(), t.sail_date, t.voyage_code.clone()))
             .or_default()
             .push(t);
     }
@@ -107,8 +110,18 @@ pub async fn run_public_sweep(
     let drip = (cfg.window / n as u32).min(Duration::from_secs(300));
     info!(sailings = n, drip_s = drip.as_secs(), "public sweep starting");
 
-    for (idx, ((brand, ship, sail), tps)) in groups.into_iter().enumerate() {
-        match client.fetch_public_products(brand, &ship, sail).await {
+    let mut pcache = PrincessPriceCache::default();
+    for (idx, ((brand, ship, sail, voyage), tps)) in groups.into_iter().enumerate() {
+        if brand == Brand::Princess && princess.is_none() {
+            warn!(ship = %ship, %sail, "no Princess client; Princess sailing skipped");
+            continue;
+        }
+        let fetched = if brand == Brand::Princess {
+            fetch_princess(princess, &mut pcache, voyage.as_deref(), &tps).await
+        } else {
+            client.fetch_public_products(brand, &ship, sail).await
+        };
+        match fetched {
             Ok(PublicFetch::Products(products)) => {
                 outcome.sailings_fetched += 1;
                 let by_code: HashMap<&str, &PublicProduct> =
@@ -174,7 +187,7 @@ async fn sweep_one(
         tracked_id: tp.tracked_id,
         fetched_at: Utc::now(),
         adult_promo_price: promo,
-        child_promo_price: None,
+        child_promo_price: p.child_cents.map(|c| c as f64 / 100.0),
         base_price: p.base_dollars(),
         promo_present,
         raw_response: serde_json::to_value(p).unwrap_or(serde_json::Value::Null),
@@ -221,7 +234,7 @@ async fn sweep_one(
         .title
         .clone()
         .unwrap_or_else(|| tp.product_code.clone());
-    let itinerary = sailing_label(ship, sail);
+    let itinerary = sailing_label(tp.brand, ship, sail);
 
     let mut any_sent = false;
     for sub in &subs {
@@ -235,6 +248,8 @@ async fn sweep_one(
             msrp_label: p.base_label.as_deref(),
             itinerary: Some(&itinerary),
             manage_url: None,
+            currency: tp.currency.as_deref().or(if tp.brand == Brand::Princess { Some("USD") } else { None }),
+            unit_label: p.unit_label.as_deref(),
         };
         match notifier.notify_price_drop(&target, &alert).await {
             Ok(()) => {
@@ -260,4 +275,23 @@ async fn sweep_one(
             let _ = repo.mark_sailing_notified(&[id]).await;
         }
     }
+}
+
+/// Princess group fetch via the per-sweep cache. A missing client or voyage is
+/// an error (counted as a failure for the group's targets).
+async fn fetch_princess(
+    princess: Option<&PrincessGuestClient>,
+    cache: &mut PrincessPriceCache,
+    voyage: Option<&str>,
+    tps: &[ScrapeTarget],
+) -> Result<PublicFetch, royaltracker_api::ApiError> {
+    let status = |body: &str| royaltracker_api::ApiError::Status { status: 502, body: body.to_string() };
+    let Some(client) = princess else {
+        return Err(status("Princess client unavailable; skipped"));
+    };
+    let Some(voyage) = voyage else {
+        return Err(status("Princess sailing has no voyage code"));
+    };
+    let currency = tps.iter().find_map(|t| t.currency.as_deref()).unwrap_or("USD");
+    Ok(princess_fetch_outcome(cache.products(client, voyage, currency).await?))
 }

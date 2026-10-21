@@ -12,14 +12,16 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{Duration, NaiveDate, Utc};
+use royaltracker_api::princess::{PrincessGuestClient, PrincessVoyage};
 use royaltracker_api::{PublicClient, PublicFetch};
 use royaltracker_storage::{
-    DefaultRepo, NewPublicChannel, PriceRepo, PublicPriceDto, SailingSnapshot,
+    DefaultRepo, NewPublicChannel, PriceRepo, PublicPriceDto, SailingKey, SailingSnapshot,
 };
 use royaltracker_types::{AlertMode, Brand, PublicChannelKind};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::device;
 
@@ -65,12 +67,85 @@ impl PublicIdentity {
     }
 }
 
+/// Cached Princess schedule. The state lock is held only to read or swap in a
+/// result, never across a fetch; `refresh` lets exactly one request refetch
+/// while the others keep serving the stale copy.
+#[derive(Clone, Default)]
+pub struct ScheduleCache {
+    state: Arc<std::sync::Mutex<ScheduleState>>,
+    refresh: Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Default)]
+struct ScheduleState {
+    /// Last good schedule and when it was fetched.
+    data: Option<(Instant, Arc<Vec<PrincessVoyage>>)>,
+    /// After a failed refresh, don't refetch before this.
+    retry_after: Option<Instant>,
+}
+
+const SCHEDULE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// Back-off after a failed schedule refresh.
+const SCHEDULE_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// What a schedule request should do, given the cache state.
+#[derive(Debug, PartialEq, Eq)]
+enum ScheduleStep {
+    /// The cached copy is fresh.
+    Serve,
+    /// Stale or absent, and no recent failure: refetch.
+    Refresh,
+    /// Stale, but a refresh failed recently: serve the stale copy without fetching.
+    ServeStale,
+    /// Nothing cached and a refresh failed recently.
+    Unavailable,
+}
+
+fn schedule_step(fetched_at: Option<Instant>, retry_after: Option<Instant>, now: Instant) -> ScheduleStep {
+    if fetched_at.is_some_and(|at| now.saturating_duration_since(at) < SCHEDULE_TTL) {
+        return ScheduleStep::Serve;
+    }
+    let blocked = retry_after.is_some_and(|t| now < t);
+    match (fetched_at.is_some(), blocked) {
+        (_, false) => ScheduleStep::Refresh,
+        (true, true) => ScheduleStep::ServeStale,
+        (false, true) => ScheduleStep::Unavailable,
+    }
+}
+
+impl ScheduleCache {
+    /// The current step plus the cached copy (fresh or stale), if any.
+    fn peek(&self) -> (ScheduleStep, Option<Arc<Vec<PrincessVoyage>>>) {
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let step = schedule_step(st.data.as_ref().map(|(at, _)| *at), st.retry_after, Instant::now());
+        (step, st.data.as_ref().map(|(_, v)| v.clone()))
+    }
+
+    fn store_ok(&self, v: Arc<Vec<PrincessVoyage>>) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.data = Some((Instant::now(), v));
+        st.retry_after = None;
+    }
+
+    fn store_failure(&self) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.retry_after = Some(Instant::now() + SCHEDULE_RETRY_AFTER);
+    }
+}
+
 #[derive(Clone)]
 pub struct PublicState {
     pub repo: Arc<DefaultRepo>,
     /// appkey-only client for live seed-on-lookup fetches. Egresses from the
     /// pod's (home) IP, never Cloudflare.
     pub public_client: Arc<PublicClient>,
+    /// Princess guest client (schedule source).
+    pub princess: Arc<PrincessGuestClient>,
+    /// Fleet-wide Princess extras, shared with the authed web tier (6 h TTL).
+    pub princess_extras: Arc<royaltracker_core::PrincessExtrasCache>,
+    /// Whole Princess schedule, refreshed at most every 24 h (30 min back-off
+    /// after a failed refresh).
+    pub schedule: ScheduleCache,
     /// None → subscribe/manage disabled (read-only lookup still works).
     pub identity: Option<PublicIdentity>,
 }
@@ -105,6 +180,15 @@ fn db_err(e: impl std::fmt::Display) -> ApiErr {
     (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}"))
 }
 
+/// Princess sailings are keyed by voyage code (ship + date isn't unique).
+fn require_voyage(brand: Brand, voyage: Option<&str>) -> Result<Option<&str>, ApiErr> {
+    let voyage = voyage.map(str::trim).filter(|v| !v.is_empty());
+    if brand == Brand::Princess && voyage.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "voyage required for princess".into()));
+    }
+    Ok(if brand == Brand::Princess { voyage } else { None })
+}
+
 #[derive(Serialize)]
 struct ShipItem {
     brand: String,
@@ -132,20 +216,214 @@ struct SailingsQuery {
     ship: String,
 }
 
-/// Bookable sail dates for a ship, fetched live from the public voyages endpoint.
+
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+struct SailingOption {
+    sail_date: String,
+    voyage_code: Option<String>,
+    nights: Option<i32>,
+    itinerary: Option<String>,
+}
+
+fn schedule_unavailable() -> ApiErr {
+    (StatusCode::BAD_GATEWAY, "schedule temporarily unavailable".into())
+}
+
+/// Current schedule, refetched (single attempt) when absent or older than 24 h.
+/// While one request refreshes, others serve the stale copy. A failed refresh
+/// serves the stale copy (or 502 when there is none) and isn't retried for
+/// 30 min.
+async fn princess_schedule(s: &PublicState) -> Result<Arc<Vec<PrincessVoyage>>, ApiErr> {
+    let cache = &s.schedule;
+    let (step, data) = cache.peek();
+    match (step, data) {
+        (ScheduleStep::Refresh, data) => {
+            let _guard = match cache.refresh.try_lock() {
+                Ok(g) => g,
+                Err(_) => match data {
+                    // Another request is refreshing: serve the stale copy meanwhile.
+                    Some(v) => return Ok(v),
+                    // Nothing to serve: wait for that refresh, then re-check.
+                    None => cache.refresh.lock().await,
+                },
+            };
+            // A refresh may have completed since the first peek.
+            let (step, data) = cache.peek();
+            match (step, data) {
+                (ScheduleStep::Refresh, stale) => match s.princess.fetch_schedule().await {
+                    Ok(v) => {
+                        let v = Arc::new(v);
+                        cache.store_ok(v.clone());
+                        Ok(v)
+                    }
+                    Err(e) => {
+                        cache.store_failure();
+                        match stale {
+                            Some(v) => {
+                                tracing::warn!(error = %e, "princess schedule refresh failed; serving stale");
+                                Ok(v)
+                            }
+                            None => {
+                                tracing::warn!(error = %e, "princess schedule fetch failed");
+                                Err(schedule_unavailable())
+                            }
+                        }
+                    }
+                },
+                (_, Some(v)) => Ok(v),
+                (_, None) => Err(schedule_unavailable()),
+            }
+        }
+        (_, Some(v)) => Ok(v),
+        (_, None) => Err(schedule_unavailable()),
+    }
+}
+
+/// The schedule entry for exactly this voyage + ship + date, if any.
+fn find_voyage<'a>(
+    schedule: &'a [PrincessVoyage],
+    ship: &str,
+    date: NaiveDate,
+    voyage: &str,
+) -> Option<&'a PrincessVoyage> {
+    schedule
+        .iter()
+        .find(|v| v.voyage_code == voyage && v.ship_code.eq_ignore_ascii_case(ship) && v.sail_date == date)
+}
+
+/// Validate a client-supplied Princess voyage against the cached schedule
+/// (fail closed: 502 if the schedule is unavailable, 404 if no match).
+async fn resolve_princess_voyage(
+    s: &PublicState,
+    ship: &str,
+    sail_date: NaiveDate,
+    voyage: &str,
+) -> Result<PrincessVoyage, ApiErr> {
+    let sched = princess_schedule(s).await?;
+    find_voyage(&sched, ship, sail_date, voyage)
+        .cloned()
+        .ok_or((StatusCode::NOT_FOUND, "unknown voyage".into()))
+}
+
+/// Upcoming voyages of one Princess ship from a schedule (already sorted).
+fn princess_options(schedule: &[PrincessVoyage], ship: &str, today: NaiveDate) -> Vec<SailingOption> {
+    schedule
+        .iter()
+        .filter(|v| v.ship_code == ship && v.sail_date >= today)
+        .map(|v| SailingOption {
+            sail_date: v.sail_date.format("%Y-%m-%d").to_string(),
+            voyage_code: Some(v.voyage_code.clone()),
+            nights: Some(v.nights),
+            itinerary: Some(v.itinerary.clone()),
+        })
+        .collect()
+}
+
+/// Bookable sailings for a ship. Royal/Celebrity: dates from the public voyages
+/// endpoint. Princess: every voyage (ship + date isn't unique) from the cached
+/// public schedule.
 async fn sailings(
     State(s): State<PublicState>,
     Query(q): Query<SailingsQuery>,
-) -> Result<Json<Vec<String>>, ApiErr> {
+) -> Result<Json<Vec<SailingOption>>, ApiErr> {
     let brand = parse_brand(&q.brand)?;
+    if brand == Brand::Princess {
+        let sched = princess_schedule(&s).await?;
+        return Ok(Json(princess_options(&sched, &q.ship, Utc::now().date_naive())));
+    }
     let dates = s
         .public_client
         .fetch_public_sailings(brand, &q.ship)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("voyages: {e}")))?;
     Ok(Json(
-        dates.iter().map(|d| d.format("%Y-%m-%d").to_string()).collect(),
+        dates
+            .iter()
+            .map(|d| SailingOption {
+                sail_date: d.format("%Y-%m-%d").to_string(),
+                voyage_code: None,
+                nights: None,
+                itinerary: None,
+            })
+            .collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(code: &str, ship: &str, d: (i32, u32, u32)) -> PrincessVoyage {
+        PrincessVoyage {
+            voyage_code: code.into(),
+            ship_code: ship.into(),
+            sail_date: NaiveDate::from_ymd_opt(d.0, d.1, d.2).unwrap(),
+            nights: 7,
+            itinerary: "Caribbean".into(),
+            currency: "USD".into(),
+        }
+    }
+
+    #[test]
+    fn find_voyage_matches_code_ship_and_date() {
+        let s = vec![v("4702A", "ST", (2027, 1, 2))];
+        let d = NaiveDate::from_ymd_opt(2027, 1, 2).unwrap();
+        assert!(find_voyage(&s, "ST", d, "4702A").is_some());
+        // Ship matches case-insensitively; callers key sailings by the
+        // schedule's canonical code.
+        assert_eq!(find_voyage(&s, "st", d, "4702A").map(|m| m.ship_code.as_str()), Some("ST"));
+        assert!(find_voyage(&s, "RU", d, "4702A").is_none());
+        assert!(find_voyage(&s, "ST", NaiveDate::from_ymd_opt(2027, 1, 3).unwrap(), "4702A").is_none());
+        assert!(find_voyage(&s, "ST", d, "NOPE").is_none());
+    }
+
+    #[test]
+    fn schedule_step_decisions() {
+        use std::time::Duration as StdDuration;
+        let now = Instant::now() + StdDuration::from_secs(100 * 3600);
+        let fresh = Some(now - StdDuration::from_secs(3600));
+        let stale = Some(now - SCHEDULE_TTL - StdDuration::from_secs(1));
+        let failed_recently = Some(now + StdDuration::from_secs(60));
+        let failed_long_ago = Some(now - StdDuration::from_secs(60));
+
+        // Fresh → serve (even with a pending back-off).
+        assert_eq!(schedule_step(fresh, None, now), ScheduleStep::Serve);
+        assert_eq!(schedule_step(fresh, failed_recently, now), ScheduleStep::Serve);
+        // Stale and not retry-blocked → refresh.
+        assert_eq!(schedule_step(stale, None, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(stale, failed_long_ago, now), ScheduleStep::Refresh);
+        // Failed recently → serve stale without fetching.
+        assert_eq!(schedule_step(stale, failed_recently, now), ScheduleStep::ServeStale);
+        // Nothing cached → refresh, unless a fetch failed recently → error.
+        assert_eq!(schedule_step(None, None, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(None, failed_long_ago, now), ScheduleStep::Refresh);
+        assert_eq!(schedule_step(None, failed_recently, now), ScheduleStep::Unavailable);
+    }
+
+    #[test]
+    fn princess_prices_require_voyage() {
+        assert!(require_voyage(Brand::Princess, None).is_err());
+        assert!(require_voyage(Brand::Royal, None).is_ok());
+        assert_eq!(require_voyage(Brand::Princess, Some("4702A")).unwrap(), Some("4702A"));
+    }
+
+    #[test]
+    fn princess_options_filter_ship_and_past_keep_combos() {
+        let s = vec![
+            v("A1", "ST", (2020, 1, 1)),
+            v("4702", "ST", (2027, 1, 2)),
+            v("4702A", "ST", (2027, 1, 2)),
+            v("X1", "RU", (2027, 1, 2)),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 10, 21).unwrap();
+        let o = princess_options(&s, "ST", today);
+        assert_eq!(o.len(), 2);
+        assert_eq!(o[0].voyage_code.as_deref(), Some("4702"));
+        assert_eq!(o[1].voyage_code.as_deref(), Some("4702A"));
+        assert_eq!(o[0].sail_date, "2027-01-02");
+        assert_eq!(o[0].nights, Some(7));
+    }
 }
 
 #[derive(Deserialize)]
@@ -153,6 +431,9 @@ struct PricesQuery {
     brand: String,
     ship: String,
     sail_date: String,
+    /// Required for Princess (voyage code); ignored for Royal/Celebrity.
+    #[serde(default)]
+    voyage: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -170,12 +451,17 @@ async fn prices(
 ) -> Result<Json<PricesResponse>, ApiErr> {
     let brand = parse_brand(&q.brand)?;
     let date = parse_date(&q.sail_date)?;
+    let voyage = require_voyage(brand, q.voyage.as_deref())?;
+    // Princess: validate the voyage against the schedule first and key the
+    // sailing by the schedule's ship code (the match is case-insensitive).
+    let matched = match voyage {
+        Some(v) => Some(resolve_princess_voyage(&s, &q.ship, date, v).await?),
+        None => None,
+    };
+    let ship = matched.as_ref().map_or(q.ship.as_str(), |m| m.ship_code.as_str());
+    let key = SailingKey { brand, ship_code: ship, sail_date: date, voyage_code: voyage };
 
-    let cached = s
-        .repo
-        .latest_sailing_prices(brand, &q.ship, date)
-        .await
-        .map_err(db_err)?;
+    let cached = s.repo.latest_sailing_prices(&key).await.map_err(db_err)?;
     let cutoff = Utc::now() - Duration::hours(FRESH_HOURS);
     let is_fresh = !cached.is_empty()
         && cached
@@ -190,13 +476,20 @@ async fn prices(
     }
 
     // Cache miss or stale → live fetch + seed.
-    match s
-        .public_client
-        .fetch_public_products(brand, &q.ship, date)
-        .await
-    {
+    let (fetch, currency) = match &matched {
+        Some(m) => {
+            let mut cache = royaltracker_core::PrincessPriceCache::default();
+            let r = cache
+                .products_shared(&s.princess, &s.princess_extras, &m.voyage_code, &m.currency)
+                .await
+                .map(royaltracker_core::princess_fetch_outcome);
+            (r, Some(m.currency.as_str()))
+        }
+        None => (s.public_client.fetch_public_products(brand, &q.ship, date).await, None),
+    };
+    match fetch {
         Ok(PublicFetch::Products(products)) => {
-            let sailing_id = s.repo.upsert_sailing(brand, &q.ship, date).await.map_err(db_err)?;
+            let sailing_id = s.repo.upsert_sailing(&key, currency).await.map_err(db_err)?;
             for p in &products {
                 let tracked_id = s
                     .repo
@@ -213,7 +506,7 @@ async fn prices(
                     tracked_id,
                     fetched_at: Utc::now(),
                     adult_promo_price: p.promo_dollars(),
-                    child_promo_price: None,
+                    child_promo_price: p.child_cents.map(|c| c as f64 / 100.0),
                     base_price: p.base_dollars(),
                     promo_present: p.promo_cents.is_some(),
                     raw_response: serde_json::to_value(p).unwrap_or(serde_json::Value::Null),
@@ -222,11 +515,7 @@ async fn prices(
                     tracing::warn!(error = %e, "record_public_price (lookup seed) failed");
                 }
             }
-            let fresh = s
-                .repo
-                .latest_sailing_prices(brand, &q.ship, date)
-                .await
-                .map_err(db_err)?;
+            let fresh = s.repo.latest_sailing_prices(&key).await.map_err(db_err)?;
             Ok(Json(PricesResponse {
                 planner_open: true,
                 live: true,
@@ -278,6 +567,9 @@ struct SubscribeReq {
     ship: String,
     sail_date: String,
     product_code: String,
+    /// Required for Princess (voyage code).
+    #[serde(default)]
+    voyage: Option<String>,
     #[serde(default)]
     category: Option<String>,
     #[serde(default)]
@@ -323,6 +615,7 @@ async fn subscribe(
 
     let brand = parse_brand(&body.brand)?;
     let date = parse_date(&body.sail_date)?;
+    let voyage = require_voyage(brand, body.voyage.as_deref())?;
     let kind = match body.channel.as_str() {
         "webpush" => PublicChannelKind::WebPush,
         "email" => {
@@ -367,8 +660,22 @@ async fn subscribe(
         None => (device::mint_device_id(), true),
     };
 
-    // Seed the sailing + tracked product so the sweep keeps it fresh.
-    let sailing_id = s.repo.upsert_sailing(brand, &body.ship, date).await.map_err(db_err)?;
+    // Seed the sailing + tracked product so the sweep keeps it fresh. Princess
+    // sailings are keyed by the schedule's ship code (matched case-insensitively).
+    let matched = match voyage {
+        Some(v) => Some(resolve_princess_voyage(&s, &body.ship, date, v).await?),
+        None => None,
+    };
+    let ship = matched.as_ref().map_or(body.ship.as_str(), |m| m.ship_code.as_str());
+    let currency = matched.as_ref().map(|m| m.currency.as_str());
+    let sailing_id = s
+        .repo
+        .upsert_sailing(
+            &SailingKey { brand, ship_code: ship, sail_date: date, voyage_code: voyage },
+            currency,
+        )
+        .await
+        .map_err(db_err)?;
     let category = body.category.clone().unwrap_or_default();
     let tracked_id = s
         .repo

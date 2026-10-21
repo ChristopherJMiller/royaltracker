@@ -1,16 +1,17 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use royaltracker_types::{
-    AlertMode, Booking, Brand, Diff, PriceSnapshot, PublicChannelKind, Sailing, User, WatchedProduct,
+    AlertMode, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
+    Sailing, User, WatchedProduct,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
 use crate::repo::{
-    CatalogEntry, DeckPlan, HistoryPoint, NewPublicChannel, NewUser, PriceRepo, PublicPriceDto,
-    PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingSnapshot, ScrapeTarget, ShipRef,
-    StorageError, SubscriberInfo,
+    ActiveAccount, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel, NewUser,
+    PriceRepo, PublicPriceDto, PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingKey,
+    SailingSnapshot, ScrapeTarget, ShipRef, StorageError, SubscriberInfo,
 };
 
 fn scope_to_opt(s: String) -> Option<String> {
@@ -19,10 +20,6 @@ fn scope_to_opt(s: String) -> Option<String> {
     } else {
         Some(s)
     }
-}
-
-fn money_label(v: Option<f64>) -> Option<String> {
-    v.map(|p| format!("${p:.2}"))
 }
 
 #[derive(Clone)]
@@ -49,41 +46,104 @@ impl SqliteRepo {
 }
 
 fn row_to_user_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<User, StorageError> {
-    let brand_s: String = r.try_get("brand_pref")?;
     let active_i: i64 = r.try_get("active")?;
     Ok(User {
         id: r.try_get("id")?,
         telegram_chat_id: r.try_get("telegram_chat_id")?,
         telegram_username: r.try_get("telegram_username")?,
-        rcg_username: r.try_get("rcg_username")?,
-        rcg_password_ct: r.try_get("rcg_password_ct")?,
-        rcg_password_nonce: r.try_get("rcg_password_nonce")?,
-        brand_pref: Brand::from_str(&brand_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         active: active_i != 0,
     })
+}
+
+fn row_to_account_sqlite(r: &sqlx::sqlite::SqliteRow) -> Result<CruiseAccount, StorageError> {
+    let line_s: String = r.try_get("cruise_line")?;
+    let active_i: i64 = r.try_get("active")?;
+    let last_s: Option<String> = r.try_get("last_login_at")?;
+    Ok(CruiseAccount {
+        id: r.try_get("id")?,
+        user_id: r.try_get("user_id")?,
+        line: CruiseLine::from_str(&line_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        login: r.try_get("login")?,
+        password_ct: r.try_get("password_ct")?,
+        password_nonce: r.try_get("password_nonce")?,
+        active: active_i != 0,
+        last_login_at: last_s.as_deref().map(parse_ts_sqlite).transpose()?,
+        last_login_error: r.try_get("last_login_error")?,
+    })
+}
+
+const ACCOUNT_COLS: &str = "a.id, a.user_id, a.cruise_line, a.login, a.password_ct, a.password_nonce, a.active, a.last_login_at, a.last_login_error";
+
+/// SQL literal list of a line's brands, e.g. `'royal','celebrity'`. The values
+/// are compile-time constants from `Brand::as_str`, never user input.
+fn brand_list_sql(line: CruiseLine) -> String {
+    line.brands()
+        .iter()
+        .map(|b| format!("'{}'", b.as_str()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+async fn upsert_sailing_on(
+    conn: &mut sqlx::SqliteConnection,
+    k: &SailingKey<'_>,
+    currency: Option<&str>,
+) -> Result<i64, StorageError> {
+    let row = sqlx::query(
+        r#"INSERT INTO sailings (brand, ship_code, sail_date, voyage_code, currency, active)
+           VALUES (?1, ?2, ?3, ?4, ?5, 1)
+           ON CONFLICT(brand, ship_code, sail_date, voyage_code) DO UPDATE SET
+               active = 1,
+               currency = COALESCE(excluded.currency, sailings.currency)
+           RETURNING id"#,
+    )
+    .bind(k.brand.as_str())
+    .bind(k.ship_code)
+    .bind(k.sail_date.format("%Y-%m-%d").to_string())
+    .bind(k.voyage_code.unwrap_or(""))
+    .bind(currency)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(row.try_get::<i64, _>("id")?)
 }
 
 #[async_trait]
 impl PriceRepo for SqliteRepo {
     async fn migrate(&self) -> Result<(), StorageError> {
-        sqlx::migrate!("../../migrations/sqlite")
-            .run(&self.pool)
+        // Table-rebuild migrations (0012) need foreign_keys OFF, otherwise
+        // DROP TABLE cascades into child rows. The pragma is a no-op inside a
+        // transaction, so set it on one dedicated connection before the
+        // migrator opens its per-migration transactions.
+        let mut conn = self.pool.acquire().await?;
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *conn)
             .await?;
+        let migrated = sqlx::migrate!("../../migrations/sqlite")
+            .run_direct(&mut *conn)
+            .await;
+        let violations = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut *conn)
+            .await;
+        // Always restore enforcement before the connection returns to the pool.
+        let restored = sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .await;
+        migrated?;
+        restored?;
+        let n = violations?.len();
+        if n > 0 {
+            return Err(StorageError::ForeignKeyCheck(n));
+        }
         Ok(())
     }
 
     async fn upsert_user(&self, u: &NewUser<'_>) -> Result<i64, StorageError> {
         let row = sqlx::query(
             r#"
-            INSERT INTO users (telegram_chat_id, telegram_username, rcg_username,
-                               rcg_password_ct, rcg_password_nonce, brand_pref, active)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)
+            INSERT INTO users (telegram_chat_id, telegram_username, active)
+            VALUES (?1, ?2, 1)
             ON CONFLICT(telegram_chat_id) DO UPDATE SET
                 telegram_username = excluded.telegram_username,
-                rcg_username = excluded.rcg_username,
-                rcg_password_ct = excluded.rcg_password_ct,
-                rcg_password_nonce = excluded.rcg_password_nonce,
-                brand_pref = excluded.brand_pref,
                 active = 1,
                 updated_at = datetime('now')
             RETURNING id
@@ -91,10 +151,6 @@ impl PriceRepo for SqliteRepo {
         )
         .bind(u.telegram_chat_id)
         .bind(u.telegram_username)
-        .bind(u.rcg_username)
-        .bind(u.rcg_password_ct)
-        .bind(u.rcg_password_nonce)
-        .bind(u.brand_pref.as_str())
         .fetch_one(&self.pool)
         .await?;
         Ok(row.try_get::<i64, _>("id")?)
@@ -102,9 +158,7 @@ impl PriceRepo for SqliteRepo {
 
     async fn get_user_by_chat_id(&self, chat_id: i64) -> Result<Option<User>, StorageError> {
         let row = sqlx::query(
-            r#"SELECT id, telegram_chat_id, telegram_username, rcg_username,
-                      rcg_password_ct, rcg_password_nonce, brand_pref, active
-               FROM users WHERE telegram_chat_id = ?1"#,
+            "SELECT id, telegram_chat_id, telegram_username, active FROM users WHERE telegram_chat_id = ?1",
         )
         .bind(chat_id)
         .fetch_optional(&self.pool)
@@ -113,40 +167,148 @@ impl PriceRepo for SqliteRepo {
         row.map(row_to_user_sqlite).transpose()
     }
 
-    async fn list_active_users(&self) -> Result<Vec<User>, StorageError> {
-        let rows = sqlx::query(
-            r#"SELECT id, telegram_chat_id, telegram_username, rcg_username,
-                      rcg_password_ct, rcg_password_nonce, brand_pref, active
-               FROM users WHERE active = 1"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter().map(row_to_user_sqlite).collect()
-    }
-
     async fn deactivate_user(&self, chat_id: i64) -> Result<(), StorageError> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE users SET active = 0, updated_at = datetime('now') WHERE telegram_chat_id = ?1")
             .bind(chat_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        // Unregistering deletes the stored cruise logins: linking a line later
+        // must not silently resume scraping with the old credentials.
+        sqlx::query(
+            "DELETE FROM cruise_accounts WHERE user_id IN (SELECT id FROM users WHERE telegram_chat_id = ?1)",
+        )
+        .bind(chat_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn set_user_brand(&self, chat_id: i64, brand: Brand) -> Result<(), StorageError> {
-        sqlx::query("UPDATE users SET brand_pref = ?1, updated_at = datetime('now') WHERE telegram_chat_id = ?2")
-            .bind(brand.as_str())
-            .bind(chat_id)
-            .execute(&self.pool)
+    async fn upsert_cruise_account(&self, a: &NewCruiseAccount<'_>) -> Result<i64, StorageError> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO cruise_accounts (user_id, cruise_line, login, password_ct, password_nonce, active)
+            VALUES (?1, ?2, ?3, ?4, ?5, 1)
+            ON CONFLICT(user_id, cruise_line) DO UPDATE SET
+                login = excluded.login,
+                password_ct = excluded.password_ct,
+                password_nonce = excluded.password_nonce,
+                active = 1,
+                last_login_error = NULL,
+                updated_at = datetime('now')
+            RETURNING id
+            "#,
+        )
+        .bind(a.user_id)
+        .bind(a.line.as_str())
+        .bind(a.login)
+        .bind(a.password_ct)
+        .bind(a.password_nonce)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.try_get::<i64, _>("id")?)
+    }
+
+    async fn list_cruise_accounts(&self, user_id: i64) -> Result<Vec<CruiseAccount>, StorageError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {ACCOUNT_COLS} FROM cruise_accounts a WHERE a.user_id = ?1 ORDER BY a.cruise_line"
+        ))
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_account_sqlite).collect()
+    }
+
+    async fn list_active_cruise_accounts(&self) -> Result<Vec<ActiveAccount>, StorageError> {
+        let rows = sqlx::query(&format!(
+            r#"SELECT {ACCOUNT_COLS}, u.telegram_chat_id, u.telegram_username,
+                      u.active AS user_active
+               FROM cruise_accounts a
+               JOIN users u ON u.id = a.user_id
+               WHERE a.active = 1 AND u.active = 1
+               ORDER BY a.id"#
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| -> Result<ActiveAccount, StorageError> {
+                let account = row_to_account_sqlite(r)?;
+                let user_active: i64 = r.try_get("user_active")?;
+                Ok(ActiveAccount {
+                    user: User {
+                        id: account.user_id,
+                        telegram_chat_id: r.try_get("telegram_chat_id")?,
+                        telegram_username: r.try_get("telegram_username")?,
+                        active: user_active != 0,
+                    },
+                    account,
+                })
+            })
+            .collect()
+    }
+
+    async fn remove_cruise_account(
+        &self,
+        user_id: i64,
+        line: CruiseLine,
+    ) -> Result<bool, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(&format!(
+            r#"DELETE FROM booking_subscribers
+               WHERE user_id = ?1 AND reservation_id IN (
+                   SELECT reservation_id FROM bookings WHERE brand IN ({}))"#,
+            brand_list_sql(line)
+        ))
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        let res = sqlx::query("DELETE FROM cruise_accounts WHERE user_id = ?1 AND cruise_line = ?2")
+            .bind(user_id)
+            .bind(line.as_str())
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    async fn record_login_outcome(
+        &self,
+        account_id: i64,
+        error: Option<&str>,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE cruise_accounts SET last_login_at = ?1, last_login_error = ?2, updated_at = datetime('now') WHERE id = ?3",
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(error)
+        .bind(account_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     async fn upsert_booking(&self, b: &Booking) -> Result<(), StorageError> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let sailing_id = upsert_sailing_on(
+            &mut tx,
+            &SailingKey {
+                brand: b.brand,
+                ship_code: &b.ship_code,
+                sail_date: b.sail_date,
+                voyage_code: b.voyage_code.as_deref(),
+            },
+            b.currency.as_deref(),
+        )
+        .await?;
+        // The WHERE on the DO UPDATE makes the cross-line guard atomic: a row of
+        // the other cruise line is left untouched and reports 0 rows affected.
+        let res = sqlx::query(&format!(
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
-                                  passenger_id, nights, package_code, stateroom, assigned_stateroom)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                                  passenger_id, nights, package_code, stateroom, assigned_stateroom,
+                                  voyage_code, currency, sailing_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(reservation_id) DO UPDATE SET
                 brand = excluded.brand,
                 account_id = excluded.account_id,
@@ -159,9 +321,14 @@ impl PriceRepo for SqliteRepo {
                 -- Keep a previously-discovered cabin if this refresh couldn't find one
                 -- (e.g. transient order-history error), rather than blanking it out.
                 assigned_stateroom = COALESCE(excluded.assigned_stateroom, bookings.assigned_stateroom),
+                voyage_code = excluded.voyage_code,
+                currency = excluded.currency,
+                sailing_id = excluded.sailing_id,
                 updated_at = datetime('now')
+            WHERE bookings.brand IN ({})
             "#,
-        )
+            brand_list_sql(b.brand.line())
+        ))
         .bind(&b.reservation_id)
         .bind(b.brand.as_str())
         .bind(&b.account_id)
@@ -172,14 +339,24 @@ impl PriceRepo for SqliteRepo {
         .bind(&b.package_code)
         .bind(&b.stateroom)
         .bind(&b.assigned_stateroom)
-        .execute(&self.pool)
+        .bind(&b.voyage_code)
+        .bind(&b.currency)
+        .bind(sailing_id)
+        .execute(&mut *tx)
         .await?;
+        if res.rows_affected() == 0 {
+            // Dropping the tx rolls back the sailing upsert too.
+            return Err(StorageError::CrossLineConflict {
+                reservation_id: b.reservation_id.clone(),
+            });
+        }
+        tx.commit().await?;
         Ok(())
     }
 
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
-            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom FROM bookings ORDER BY sail_date",
+            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom, voyage_code, currency FROM bookings ORDER BY sail_date",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -190,7 +367,8 @@ impl PriceRepo for SqliteRepo {
     async fn list_bookings_for_user(&self, user_id: i64) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand, b.account_id, b.ship_code, b.sail_date,
-                      b.passenger_id, b.nights, b.package_code, b.stateroom, b.assigned_stateroom
+                      b.passenger_id, b.nights, b.package_code, b.stateroom, b.assigned_stateroom,
+                      b.voyage_code, b.currency
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = ?1
@@ -469,7 +647,12 @@ impl PriceRepo for SqliteRepo {
         Ok(())
     }
 
-    async fn search_catalog(&self, q: &str, limit: i64) -> Result<Vec<CatalogEntry>, StorageError> {
+    async fn search_catalog(
+        &self,
+        user_id: i64,
+        q: &str,
+        limit: i64,
+    ) -> Result<Vec<CatalogEntry>, StorageError> {
         let pattern = format!("%{}%", q.replace('%', "\\%"));
         let rows = sqlx::query(
             r#"SELECT reservation_id, category_id, category_name, product_code,
@@ -477,11 +660,14 @@ impl PriceRepo for SqliteRepo {
                       price_label, base_price_label, unit_label
                FROM catalog_cache
                WHERE title LIKE ?1 COLLATE NOCASE
+                 AND reservation_id IN (
+                     SELECT reservation_id FROM booking_subscribers WHERE user_id = ?3)
                ORDER BY title
                LIMIT ?2"#,
         )
         .bind(pattern)
         .bind(limit)
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(row_to_catalog).collect()
@@ -538,12 +724,14 @@ impl PriceRepo for SqliteRepo {
 
     async fn get_deck_plan(
         &self,
+        brand: Brand,
         ship_code: &str,
         deck: i32,
     ) -> Result<Option<DeckPlan>, StorageError> {
         let row = sqlx::query(
-            "SELECT ship_code, deck, image_url, sourced_at FROM deck_plans WHERE ship_code = ?1 AND deck = ?2",
+            "SELECT brand, ship_code, deck, image_url, sourced_at FROM deck_plans WHERE brand = ?1 AND ship_code = ?2 AND deck = ?3",
         )
+        .bind(brand.as_str())
         .bind(ship_code)
         .bind(deck)
         .fetch_optional(&self.pool)
@@ -551,7 +739,9 @@ impl PriceRepo for SqliteRepo {
 
         row.map(|r| {
             let s: String = r.try_get("sourced_at")?;
+            let brand_s: String = r.try_get("brand")?;
             Ok::<_, StorageError>(DeckPlan {
+                brand: parse_brand_sqlite(&brand_s)?,
                 ship_code: r.try_get("ship_code")?,
                 deck: r.try_get("deck")?,
                 image_url: r.try_get("image_url")?,
@@ -565,12 +755,13 @@ impl PriceRepo for SqliteRepo {
 
     async fn upsert_deck_plan(&self, dp: &DeckPlan) -> Result<(), StorageError> {
         sqlx::query(
-            r#"INSERT INTO deck_plans (ship_code, deck, image_url, sourced_at)
-               VALUES (?1, ?2, ?3, ?4)
-               ON CONFLICT(ship_code, deck) DO UPDATE SET
+            r#"INSERT INTO deck_plans (brand, ship_code, deck, image_url, sourced_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)
+               ON CONFLICT(brand, ship_code, deck) DO UPDATE SET
                    image_url = excluded.image_url,
                    sourced_at = excluded.sourced_at"#,
         )
+        .bind(dp.brand.as_str())
         .bind(&dp.ship_code)
         .bind(dp.deck)
         .bind(&dp.image_url)
@@ -586,36 +777,21 @@ impl PriceRepo for SqliteRepo {
 
     async fn upsert_sailing(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
+        currency: Option<&str>,
     ) -> Result<i64, StorageError> {
-        let row = sqlx::query(
-            r#"INSERT INTO sailings (brand, ship_code, sail_date, active)
-               VALUES (?1, ?2, ?3, 1)
-               ON CONFLICT(brand, ship_code, sail_date) DO UPDATE SET active = 1
-               RETURNING id"#,
-        )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date.format("%Y-%m-%d").to_string())
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.try_get::<i64, _>("id")?)
+        let mut conn = self.pool.acquire().await?;
+        upsert_sailing_on(&mut conn, k, currency).await
     }
 
-    async fn get_sailing(
-        &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
-    ) -> Result<Option<Sailing>, StorageError> {
+    async fn get_sailing(&self, k: &SailingKey<'_>) -> Result<Option<Sailing>, StorageError> {
         let row = sqlx::query(
-            "SELECT id, brand, ship_code, sail_date FROM sailings WHERE brand = ?1 AND ship_code = ?2 AND sail_date = ?3",
+            "SELECT id, brand, ship_code, sail_date, voyage_code, currency FROM sailings WHERE brand = ?1 AND ship_code = ?2 AND sail_date = ?3 AND voyage_code = ?4",
         )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date.format("%Y-%m-%d").to_string())
+        .bind(k.brand.as_str())
+        .bind(k.ship_code)
+        .bind(k.sail_date.format("%Y-%m-%d").to_string())
+        .bind(k.voyage_code.unwrap_or(""))
         .fetch_optional(&self.pool)
         .await?;
         row.map(row_to_sailing_sqlite).transpose()
@@ -627,12 +803,13 @@ impl PriceRepo for SqliteRepo {
             .to_string();
         let rows = sqlx::query(
             r#"SELECT t.id AS tracked_id, s.brand, s.ship_code, s.sail_date,
-                      t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures
+                      t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures,
+                      s.voyage_code, s.currency
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                WHERE t.active = 1 AND s.active = 1 AND t.account_scope = ''
                  AND s.sail_date >= ?1
-               ORDER BY s.brand, s.ship_code, s.sail_date"#,
+               ORDER BY s.brand, s.ship_code, s.sail_date, s.voyage_code"#,
         )
         .bind(cutoff)
         .fetch_all(&self.pool)
@@ -789,25 +966,25 @@ impl PriceRepo for SqliteRepo {
 
     async fn latest_sailing_prices(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
     ) -> Result<Vec<PublicPriceDto>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT t.product_code, t.category_prefix, t.label,
-                      sp.adult_promo_price, sp.base_price, sp.fetched_at
+                      sp.adult_promo_price, sp.base_price, sp.fetched_at, s.currency,
+                      json_extract(sp.raw_response, '$.unit_label') AS unit_label
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                LEFT JOIN sailing_price_snapshots sp ON sp.id = (
                    SELECT id FROM sailing_price_snapshots
                    WHERE tracked_id = t.id ORDER BY fetched_at DESC LIMIT 1)
-               WHERE s.brand = ?1 AND s.ship_code = ?2 AND s.sail_date = ?3
+               WHERE s.brand = ?1 AND s.ship_code = ?2 AND s.sail_date = ?3 AND s.voyage_code = ?4
                  AND t.account_scope = '' AND t.active = 1
                ORDER BY t.category_prefix, t.label"#,
         )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date.format("%Y-%m-%d").to_string())
+        .bind(k.brand.as_str())
+        .bind(k.ship_code)
+        .bind(k.sail_date.format("%Y-%m-%d").to_string())
+        .bind(k.voyage_code.unwrap_or(""))
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(row_to_public_price_sqlite).collect()
@@ -885,6 +1062,7 @@ impl PriceRepo for SqliteRepo {
         let rows = sqlx::query(
             r#"SELECT ps.id AS subscription_id, ps.tracked_id, s.brand, s.ship_code, s.sail_date,
                       t.product_code, t.label, c.kind AS channel_kind, ps.alert_mode, ps.alert_threshold,
+                      s.voyage_code, s.currency,
                       (SELECT adult_promo_price FROM sailing_price_snapshots
                        WHERE tracked_id = t.id ORDER BY fetched_at DESC LIMIT 1) AS latest_promo_price
                FROM public_subscriptions ps
@@ -984,6 +1162,8 @@ fn row_to_booking_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<Booking, StorageE
         package_code: r.try_get("package_code")?,
         stateroom: r.try_get("stateroom")?,
         assigned_stateroom: r.try_get("assigned_stateroom")?,
+        voyage_code: r.try_get("voyage_code")?,
+        currency: r.try_get("currency")?,
     })
 }
 
@@ -1038,6 +1218,8 @@ fn row_to_sailing_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<Sailing, StorageE
         ship_code: r.try_get("ship_code")?,
         sail_date: NaiveDate::parse_from_str(&sail_s, "%Y-%m-%d")
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 
@@ -1055,6 +1237,8 @@ fn row_to_scrape_target_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<ScrapeTarge
         category_prefix: r.try_get("category_prefix")?,
         account_scope: scope_to_opt(scope),
         consecutive_failures: r.try_get("consecutive_failures")?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 
@@ -1078,9 +1262,10 @@ fn row_to_sailing_snapshot_sqlite(
 fn row_to_shipref_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<ShipRef, StorageError> {
     let brand_s: String = r.try_get("brand")?;
     let ship_code: String = r.try_get("ship_code")?;
-    let ship_name = royaltracker_types::ship_name(&ship_code).map(|s| s.to_string());
+    let brand = parse_brand_sqlite(&brand_s)?;
+    let ship_name = royaltracker_types::ship_name(brand, &ship_code).map(|s| s.to_string());
     Ok(ShipRef {
-        brand: parse_brand_sqlite(&brand_s)?,
+        brand,
         ship_code,
         ship_name,
     })
@@ -1094,16 +1279,19 @@ fn row_to_public_price_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<PublicPriceD
         Some(s) => Some(parse_ts_sqlite(&s)?),
         None => None,
     };
+    let currency: Option<String> = r.try_get("currency")?;
+    let cur = currency.as_deref();
     Ok(PublicPriceDto {
         product_code: r.try_get("product_code")?,
         category: r.try_get("category_prefix")?,
         title: r.try_get("label")?,
         promo_price: promo,
         base_price: base,
-        price_label: money_label(promo),
-        base_price_label: money_label(base),
-        unit_label: None,
+        price_label: promo.map(|v| royaltracker_types::format_money(v, cur)),
+        base_price_label: base.map(|v| royaltracker_types::format_money(v, cur)),
+        unit_label: r.try_get("unit_label")?,
         fetched_at,
+        currency,
     })
 }
 
@@ -1146,6 +1334,8 @@ fn row_to_public_sub_row_sqlite(
         alert_mode: AlertMode::from_str(&mode_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         alert_threshold: r.try_get("alert_threshold")?,
         latest_promo_price: r.try_get("latest_promo_price")?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 

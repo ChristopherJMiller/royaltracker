@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 royaltracker-api      = { workspace = true }
 royaltracker-config   = { workspace = true }
+royaltracker-core     = { workspace = true }
 royaltracker-crypto   = { workspace = true }
 royaltracker-storage  = { workspace = true, default-features = false }
 royaltracker-telegram = { workspace = true }
@@ -34,3 +35,6 @@ serde              = { workspace = true }
 async-trait        = { workspace = true }
 axum               = { workspace = true }
 url                = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

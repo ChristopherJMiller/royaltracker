@@ -1,16 +1,17 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use royaltracker_types::{
-    AlertMode, Booking, Brand, Diff, PriceSnapshot, PublicChannelKind, Sailing, User, WatchedProduct,
+    AlertMode, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
+    Sailing, User, WatchedProduct,
 };
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Row};
 use std::str::FromStr;
 
 use crate::repo::{
-    CatalogEntry, DeckPlan, HistoryPoint, NewPublicChannel, NewUser, PriceRepo, PublicPriceDto,
-    PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingSnapshot, ScrapeTarget, ShipRef,
-    StorageError, SubscriberInfo,
+    ActiveAccount, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel, NewUser,
+    PriceRepo, PublicPriceDto, PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingKey,
+    SailingSnapshot, ScrapeTarget, ShipRef, StorageError, SubscriberInfo,
 };
 
 fn scope_to_opt(s: String) -> Option<String> {
@@ -19,10 +20,6 @@ fn scope_to_opt(s: String) -> Option<String> {
     } else {
         Some(s)
     }
-}
-
-fn money_label(v: Option<f64>) -> Option<String> {
-    v.map(|p| format!("${p:.2}"))
 }
 
 #[derive(Clone)]
@@ -61,21 +58,63 @@ fn row_to_booking(r: &PgRow) -> Result<Booking, sqlx::Error> {
         package_code: r.try_get("package_code")?,
         stateroom: r.try_get("stateroom")?,
         assigned_stateroom: r.try_get("assigned_stateroom")?,
+        voyage_code: r.try_get("voyage_code")?,
+        currency: r.try_get("currency")?,
     })
 }
 
 fn row_to_user_pg(r: &PgRow) -> Result<User, StorageError> {
-    let brand_s: String = r.try_get("brand_pref")?;
     Ok(User {
         id: r.try_get("id")?,
         telegram_chat_id: r.try_get("telegram_chat_id")?,
         telegram_username: r.try_get("telegram_username")?,
-        rcg_username: r.try_get("rcg_username")?,
-        rcg_password_ct: r.try_get("rcg_password_ct")?,
-        rcg_password_nonce: r.try_get("rcg_password_nonce")?,
-        brand_pref: Brand::from_str(&brand_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         active: r.try_get("active")?,
     })
+}
+
+fn row_to_account_pg(r: &PgRow) -> Result<CruiseAccount, StorageError> {
+    let line_s: String = r.try_get("cruise_line")?;
+    Ok(CruiseAccount {
+        id: r.try_get("id")?,
+        user_id: r.try_get("user_id")?,
+        line: CruiseLine::from_str(&line_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        login: r.try_get("login")?,
+        password_ct: r.try_get("password_ct")?,
+        password_nonce: r.try_get("password_nonce")?,
+        active: r.try_get("active")?,
+        last_login_at: r.try_get("last_login_at")?,
+        last_login_error: r.try_get("last_login_error")?,
+    })
+}
+
+const ACCOUNT_COLS: &str = "a.id, a.user_id, a.cruise_line, a.login, a.password_ct, a.password_nonce, a.active, a.last_login_at, a.last_login_error";
+
+/// Brand names of a cruise line, for `brand::text = ANY($n)` guards.
+fn brand_names(line: CruiseLine) -> Vec<String> {
+    line.brands().iter().map(|b| b.as_str().to_string()).collect()
+}
+
+async fn upsert_sailing_on(
+    conn: &mut sqlx::PgConnection,
+    k: &SailingKey<'_>,
+    currency: Option<&str>,
+) -> Result<i64, StorageError> {
+    let row = sqlx::query(
+        r#"INSERT INTO sailings (brand, ship_code, sail_date, voyage_code, currency, active)
+           VALUES ($1::brand_kind, $2, $3, $4, $5, TRUE)
+           ON CONFLICT (brand, ship_code, sail_date, voyage_code) DO UPDATE SET
+               active = TRUE,
+               currency = COALESCE(EXCLUDED.currency, sailings.currency)
+           RETURNING id"#,
+    )
+    .bind(k.brand.as_str())
+    .bind(k.ship_code)
+    .bind(k.sail_date)
+    .bind(k.voyage_code.unwrap_or(""))
+    .bind(currency)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(row.try_get::<i64, _>("id")?)
 }
 
 #[async_trait]
@@ -90,15 +129,10 @@ impl PriceRepo for PostgresRepo {
     async fn upsert_user(&self, u: &NewUser<'_>) -> Result<i64, StorageError> {
         let row = sqlx::query(
             r#"
-            INSERT INTO users (telegram_chat_id, telegram_username, rcg_username,
-                               rcg_password_ct, rcg_password_nonce, brand_pref, active)
-            VALUES ($1, $2, $3, $4, $5, $6::brand_kind, TRUE)
+            INSERT INTO users (telegram_chat_id, telegram_username, active)
+            VALUES ($1, $2, TRUE)
             ON CONFLICT (telegram_chat_id) DO UPDATE SET
                 telegram_username = EXCLUDED.telegram_username,
-                rcg_username = EXCLUDED.rcg_username,
-                rcg_password_ct = EXCLUDED.rcg_password_ct,
-                rcg_password_nonce = EXCLUDED.rcg_password_nonce,
-                brand_pref = EXCLUDED.brand_pref,
                 active = TRUE,
                 updated_at = now()
             RETURNING id
@@ -106,10 +140,6 @@ impl PriceRepo for PostgresRepo {
         )
         .bind(u.telegram_chat_id)
         .bind(u.telegram_username)
-        .bind(u.rcg_username)
-        .bind(u.rcg_password_ct)
-        .bind(u.rcg_password_nonce)
-        .bind(u.brand_pref.as_str())
         .fetch_one(&self.pool)
         .await?;
         Ok(row.try_get::<i64, _>("id")?)
@@ -117,9 +147,7 @@ impl PriceRepo for PostgresRepo {
 
     async fn get_user_by_chat_id(&self, chat_id: i64) -> Result<Option<User>, StorageError> {
         let row = sqlx::query(
-            r#"SELECT id, telegram_chat_id, telegram_username, rcg_username,
-                      rcg_password_ct, rcg_password_nonce, brand_pref::text AS brand_pref, active
-               FROM users WHERE telegram_chat_id = $1"#,
+            "SELECT id, telegram_chat_id, telegram_username, active FROM users WHERE telegram_chat_id = $1",
         )
         .bind(chat_id)
         .fetch_optional(&self.pool)
@@ -127,40 +155,146 @@ impl PriceRepo for PostgresRepo {
         row.as_ref().map(row_to_user_pg).transpose()
     }
 
-    async fn list_active_users(&self) -> Result<Vec<User>, StorageError> {
-        let rows = sqlx::query(
-            r#"SELECT id, telegram_chat_id, telegram_username, rcg_username,
-                      rcg_password_ct, rcg_password_nonce, brand_pref::text AS brand_pref, active
-               FROM users WHERE active = TRUE"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        rows.iter().map(row_to_user_pg).collect()
-    }
-
     async fn deactivate_user(&self, chat_id: i64) -> Result<(), StorageError> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE users SET active = FALSE, updated_at = now() WHERE telegram_chat_id = $1")
             .bind(chat_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        // Unregistering deletes the stored cruise logins: linking a line later
+        // must not silently resume scraping with the old credentials.
+        sqlx::query(
+            "DELETE FROM cruise_accounts WHERE user_id IN (SELECT id FROM users WHERE telegram_chat_id = $1)",
+        )
+        .bind(chat_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn set_user_brand(&self, chat_id: i64, brand: Brand) -> Result<(), StorageError> {
-        sqlx::query("UPDATE users SET brand_pref = $1::brand_kind, updated_at = now() WHERE telegram_chat_id = $2")
-            .bind(brand.as_str())
-            .bind(chat_id)
-            .execute(&self.pool)
+    async fn upsert_cruise_account(&self, a: &NewCruiseAccount<'_>) -> Result<i64, StorageError> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO cruise_accounts (user_id, cruise_line, login, password_ct, password_nonce, active)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            ON CONFLICT (user_id, cruise_line) DO UPDATE SET
+                login = EXCLUDED.login,
+                password_ct = EXCLUDED.password_ct,
+                password_nonce = EXCLUDED.password_nonce,
+                active = TRUE,
+                last_login_error = NULL,
+                updated_at = now()
+            RETURNING id
+            "#,
+        )
+        .bind(a.user_id)
+        .bind(a.line.as_str())
+        .bind(a.login)
+        .bind(a.password_ct)
+        .bind(a.password_nonce)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.try_get::<i64, _>("id")?)
+    }
+
+    async fn list_cruise_accounts(&self, user_id: i64) -> Result<Vec<CruiseAccount>, StorageError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {ACCOUNT_COLS} FROM cruise_accounts a WHERE a.user_id = $1 ORDER BY a.cruise_line"
+        ))
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_account_pg).collect()
+    }
+
+    async fn list_active_cruise_accounts(&self) -> Result<Vec<ActiveAccount>, StorageError> {
+        let rows = sqlx::query(&format!(
+            r#"SELECT {ACCOUNT_COLS}, u.telegram_chat_id, u.telegram_username,
+                      u.active AS user_active
+               FROM cruise_accounts a
+               JOIN users u ON u.id = a.user_id
+               WHERE a.active = TRUE AND u.active = TRUE
+               ORDER BY a.id"#
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| -> Result<ActiveAccount, StorageError> {
+                let account = row_to_account_pg(r)?;
+                Ok(ActiveAccount {
+                    user: User {
+                        id: account.user_id,
+                        telegram_chat_id: r.try_get("telegram_chat_id")?,
+                        telegram_username: r.try_get("telegram_username")?,
+                        active: r.try_get("user_active")?,
+                    },
+                    account,
+                })
+            })
+            .collect()
+    }
+
+    async fn remove_cruise_account(
+        &self,
+        user_id: i64,
+        line: CruiseLine,
+    ) -> Result<bool, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"DELETE FROM booking_subscribers
+               WHERE user_id = $1 AND reservation_id IN (
+                   SELECT reservation_id FROM bookings WHERE brand::text = ANY($2))"#,
+        )
+        .bind(user_id)
+        .bind(brand_names(line))
+        .execute(&mut *tx)
+        .await?;
+        let res = sqlx::query("DELETE FROM cruise_accounts WHERE user_id = $1 AND cruise_line = $2")
+            .bind(user_id)
+            .bind(line.as_str())
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    async fn record_login_outcome(
+        &self,
+        account_id: i64,
+        error: Option<&str>,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE cruise_accounts SET last_login_at = now(), last_login_error = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(error)
+        .bind(account_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     async fn upsert_booking(&self, b: &Booking) -> Result<(), StorageError> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let sailing_id = upsert_sailing_on(
+            &mut tx,
+            &SailingKey {
+                brand: b.brand,
+                ship_code: &b.ship_code,
+                sail_date: b.sail_date,
+                voyage_code: b.voyage_code.as_deref(),
+            },
+            b.currency.as_deref(),
+        )
+        .await?;
+        // The WHERE on the DO UPDATE makes the cross-line guard atomic: a row of
+        // the other cruise line is left untouched and reports 0 rows affected.
+        let res = sqlx::query(
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
-                                  passenger_id, nights, package_code, stateroom, assigned_stateroom)
-            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9, $10)
+                                  passenger_id, nights, package_code, stateroom, assigned_stateroom,
+                                  voyage_code, currency, sailing_id)
+            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (reservation_id) DO UPDATE SET
                 brand = EXCLUDED.brand,
                 account_id = EXCLUDED.account_id,
@@ -173,7 +307,11 @@ impl PriceRepo for PostgresRepo {
                 -- Keep a previously-discovered cabin if this refresh couldn't find one
                 -- (e.g. transient order-history error), rather than blanking it out.
                 assigned_stateroom = COALESCE(EXCLUDED.assigned_stateroom, bookings.assigned_stateroom),
+                voyage_code = EXCLUDED.voyage_code,
+                currency = EXCLUDED.currency,
+                sailing_id = EXCLUDED.sailing_id,
                 updated_at = now()
+            WHERE bookings.brand::text = ANY($14)
             "#,
         )
         .bind(&b.reservation_id)
@@ -186,15 +324,27 @@ impl PriceRepo for PostgresRepo {
         .bind(&b.package_code)
         .bind(&b.stateroom)
         .bind(&b.assigned_stateroom)
-        .execute(&self.pool)
+        .bind(&b.voyage_code)
+        .bind(&b.currency)
+        .bind(sailing_id)
+        .bind(brand_names(b.brand.line()))
+        .execute(&mut *tx)
         .await?;
+        if res.rows_affected() == 0 {
+            // Dropping the tx rolls back the sailing upsert too.
+            return Err(StorageError::CrossLineConflict {
+                reservation_id: b.reservation_id.clone(),
+            });
+        }
+        tx.commit().await?;
         Ok(())
     }
 
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT reservation_id, brand::text AS brand, account_id, ship_code,
-                      sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom
+                      sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom,
+                      voyage_code, currency
                FROM bookings ORDER BY sail_date"#,
         )
         .fetch_all(&self.pool)
@@ -206,7 +356,7 @@ impl PriceRepo for PostgresRepo {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand::text AS brand, b.account_id, b.ship_code,
                       b.sail_date, b.passenger_id, b.nights, b.package_code,
-                      b.stateroom, b.assigned_stateroom
+                      b.stateroom, b.assigned_stateroom, b.voyage_code, b.currency
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = $1
@@ -474,13 +624,20 @@ impl PriceRepo for PostgresRepo {
         Ok(())
     }
 
-    async fn search_catalog(&self, q: &str, limit: i64) -> Result<Vec<CatalogEntry>, StorageError> {
+    async fn search_catalog(
+        &self,
+        user_id: i64,
+        q: &str,
+        limit: i64,
+    ) -> Result<Vec<CatalogEntry>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT reservation_id, category_id, category_name, product_code,
                       title, summary, starting_price, currency,
                       price_label, base_price_label, unit_label
                FROM catalog_cache
                WHERE title ILIKE $1
+                 AND reservation_id IN (
+                     SELECT reservation_id FROM booking_subscribers WHERE user_id = $4)
                ORDER BY ts_rank(to_tsvector('english', title), plainto_tsquery('english', $2)) DESC,
                         title
                LIMIT $3"#,
@@ -488,6 +645,7 @@ impl PriceRepo for PostgresRepo {
         .bind(format!("%{}%", q.replace('%', "\\%")))
         .bind(q)
         .bind(limit)
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_catalog_pg).collect()
@@ -539,36 +697,43 @@ impl PriceRepo for PostgresRepo {
 
     async fn get_deck_plan(
         &self,
+        brand: Brand,
         ship_code: &str,
         deck: i32,
     ) -> Result<Option<DeckPlan>, StorageError> {
         let row = sqlx::query(
-            "SELECT ship_code, deck, image_url, sourced_at FROM deck_plans WHERE ship_code = $1 AND deck = $2",
+            "SELECT brand::text AS brand, ship_code, deck, image_url, sourced_at FROM deck_plans WHERE brand = $1::brand_kind AND ship_code = $2 AND deck = $3",
         )
+        .bind(brand.as_str())
         .bind(ship_code)
         .bind(deck)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(match row {
-            Some(r) => Some(DeckPlan {
-                ship_code: r.try_get("ship_code")?,
-                deck: r.try_get("deck")?,
-                image_url: r.try_get("image_url")?,
-                sourced_at: r.try_get("sourced_at")?,
-            }),
+            Some(r) => {
+                let brand_s: String = r.try_get("brand")?;
+                Some(DeckPlan {
+                    brand: parse_brand_pg(&brand_s)?,
+                    ship_code: r.try_get("ship_code")?,
+                    deck: r.try_get("deck")?,
+                    image_url: r.try_get("image_url")?,
+                    sourced_at: r.try_get("sourced_at")?,
+                })
+            }
             None => None,
         })
     }
 
     async fn upsert_deck_plan(&self, dp: &DeckPlan) -> Result<(), StorageError> {
         sqlx::query(
-            r#"INSERT INTO deck_plans (ship_code, deck, image_url, sourced_at)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (ship_code, deck) DO UPDATE SET
+            r#"INSERT INTO deck_plans (brand, ship_code, deck, image_url, sourced_at)
+               VALUES ($1::brand_kind, $2, $3, $4, $5)
+               ON CONFLICT (brand, ship_code, deck) DO UPDATE SET
                    image_url = EXCLUDED.image_url,
                    sourced_at = EXCLUDED.sourced_at"#,
         )
+        .bind(dp.brand.as_str())
         .bind(&dp.ship_code)
         .bind(dp.deck)
         .bind(&dp.image_url)
@@ -584,36 +749,21 @@ impl PriceRepo for PostgresRepo {
 
     async fn upsert_sailing(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
+        currency: Option<&str>,
     ) -> Result<i64, StorageError> {
-        let row = sqlx::query(
-            r#"INSERT INTO sailings (brand, ship_code, sail_date, active)
-               VALUES ($1::brand_kind, $2, $3, TRUE)
-               ON CONFLICT (brand, ship_code, sail_date) DO UPDATE SET active = TRUE
-               RETURNING id"#,
-        )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.try_get::<i64, _>("id")?)
+        let mut conn = self.pool.acquire().await?;
+        upsert_sailing_on(&mut conn, k, currency).await
     }
 
-    async fn get_sailing(
-        &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
-    ) -> Result<Option<Sailing>, StorageError> {
+    async fn get_sailing(&self, k: &SailingKey<'_>) -> Result<Option<Sailing>, StorageError> {
         let row = sqlx::query(
-            "SELECT id, brand::text AS brand, ship_code, sail_date FROM sailings WHERE brand = $1::brand_kind AND ship_code = $2 AND sail_date = $3",
+            "SELECT id, brand::text AS brand, ship_code, sail_date, voyage_code, currency FROM sailings WHERE brand = $1::brand_kind AND ship_code = $2 AND sail_date = $3 AND voyage_code = $4",
         )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date)
+        .bind(k.brand.as_str())
+        .bind(k.ship_code)
+        .bind(k.sail_date)
+        .bind(k.voyage_code.unwrap_or(""))
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(row_to_sailing_pg).transpose()
@@ -623,12 +773,13 @@ impl PriceRepo for PostgresRepo {
         let cutoff = Utc::now().date_naive() - chrono::Days::new(1);
         let rows = sqlx::query(
             r#"SELECT t.id AS tracked_id, s.brand::text AS brand, s.ship_code, s.sail_date,
-                      t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures
+                      t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures,
+                      s.voyage_code, s.currency
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                WHERE t.active = TRUE AND s.active = TRUE AND t.account_scope = ''
                  AND s.sail_date >= $1
-               ORDER BY s.brand, s.ship_code, s.sail_date"#,
+               ORDER BY s.brand, s.ship_code, s.sail_date, s.voyage_code"#,
         )
         .bind(cutoff)
         .fetch_all(&self.pool)
@@ -777,27 +928,29 @@ impl PriceRepo for PostgresRepo {
 
     async fn latest_sailing_prices(
         &self,
-        brand: Brand,
-        ship_code: &str,
-        sail_date: NaiveDate,
+        k: &SailingKey<'_>,
     ) -> Result<Vec<PublicPriceDto>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT t.product_code, t.category_prefix, t.label,
-                      sp.adult_promo_price, sp.base_price, sp.fetched_at
+                      sp.adult_promo_price, sp.base_price, sp.fetched_at, s.currency,
+                      sp.unit_label
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                LEFT JOIN LATERAL (
-                   SELECT adult_promo_price, base_price, fetched_at
+                   SELECT adult_promo_price, base_price, fetched_at,
+                          raw_response->>'unit_label' AS unit_label
                    FROM sailing_price_snapshots
                    WHERE tracked_id = t.id ORDER BY fetched_at DESC LIMIT 1
                ) sp ON TRUE
                WHERE s.brand = $1::brand_kind AND s.ship_code = $2 AND s.sail_date = $3
+                 AND s.voyage_code = $4
                  AND t.account_scope = '' AND t.active = TRUE
                ORDER BY t.category_prefix, t.label"#,
         )
-        .bind(brand.as_str())
-        .bind(ship_code)
-        .bind(sail_date)
+        .bind(k.brand.as_str())
+        .bind(k.ship_code)
+        .bind(k.sail_date)
+        .bind(k.voyage_code.unwrap_or(""))
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_public_price_pg).collect()
@@ -876,6 +1029,7 @@ impl PriceRepo for PostgresRepo {
             r#"SELECT ps.id AS subscription_id, ps.tracked_id, s.brand::text AS brand, s.ship_code, s.sail_date,
                       t.product_code, t.label, c.kind::text AS channel_kind,
                       ps.alert_mode::text AS alert_mode, ps.alert_threshold,
+                      s.voyage_code, s.currency,
                       (SELECT adult_promo_price FROM sailing_price_snapshots
                        WHERE tracked_id = t.id ORDER BY fetched_at DESC LIMIT 1) AS latest_promo_price
                FROM public_subscriptions ps
@@ -999,6 +1153,8 @@ fn row_to_sailing_pg(r: &PgRow) -> Result<Sailing, StorageError> {
         brand: parse_brand_pg(&brand_s)?,
         ship_code: r.try_get("ship_code")?,
         sail_date: r.try_get("sail_date")?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 
@@ -1014,6 +1170,8 @@ fn row_to_scrape_target_pg(r: &PgRow) -> Result<ScrapeTarget, StorageError> {
         category_prefix: r.try_get("category_prefix")?,
         account_scope: scope_to_opt(scope),
         consecutive_failures: r.try_get("consecutive_failures")?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 
@@ -1032,9 +1190,10 @@ fn row_to_sailing_snapshot_pg(r: &PgRow) -> Result<SailingSnapshot, StorageError
 fn row_to_shipref_pg(r: &PgRow) -> Result<ShipRef, StorageError> {
     let brand_s: String = r.try_get("brand")?;
     let ship_code: String = r.try_get("ship_code")?;
-    let ship_name = royaltracker_types::ship_name(&ship_code).map(|s| s.to_string());
+    let brand = parse_brand_pg(&brand_s)?;
+    let ship_name = royaltracker_types::ship_name(brand, &ship_code).map(|s| s.to_string());
     Ok(ShipRef {
-        brand: parse_brand_pg(&brand_s)?,
+        brand,
         ship_code,
         ship_name,
     })
@@ -1044,16 +1203,19 @@ fn row_to_public_price_pg(r: &PgRow) -> Result<PublicPriceDto, StorageError> {
     let promo: Option<f64> = r.try_get("adult_promo_price")?;
     let base: Option<f64> = r.try_get("base_price")?;
     let fetched_at: Option<DateTime<Utc>> = r.try_get("fetched_at")?;
+    let currency: Option<String> = r.try_get("currency")?;
+    let cur = currency.as_deref();
     Ok(PublicPriceDto {
         product_code: r.try_get("product_code")?,
         category: r.try_get("category_prefix")?,
         title: r.try_get("label")?,
         promo_price: promo,
         base_price: base,
-        price_label: money_label(promo),
-        base_price_label: money_label(base),
-        unit_label: None,
+        price_label: promo.map(|v| royaltracker_types::format_money(v, cur)),
+        base_price_label: base.map(|v| royaltracker_types::format_money(v, cur)),
+        unit_label: r.try_get("unit_label")?,
         fetched_at,
+        currency,
     })
 }
 
@@ -1090,6 +1252,8 @@ fn row_to_public_sub_row_pg(r: &PgRow) -> Result<PublicSubscriptionRow, StorageE
         alert_mode: AlertMode::from_str(&mode_s).map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         alert_threshold: r.try_get("alert_threshold")?,
         latest_promo_price: r.try_get("latest_promo_price")?,
+        voyage_code: scope_to_opt(r.try_get("voyage_code")?),
+        currency: r.try_get("currency")?,
     })
 }
 

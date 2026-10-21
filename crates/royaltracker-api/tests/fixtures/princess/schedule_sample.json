@@ -1,0 +1,2979 @@
+{
+  "products": [
+    {
+      "id": "CFR07F",
+      "name": "Western Caribbean with Mexico",
+      "trades": [
+        {
+          "id": "C",
+          "subTrades": [
+            {
+              "id": "CW"
+            }
+          ]
+        }
+      ],
+      "subTrades": [
+        {
+          "id": "CW"
+        }
+      ],
+      "cruises": [
+        {
+          "id": "4643",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "4643",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20261024",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261024",
+          "endDate": "20261031"
+        },
+        {
+          "id": "G643N",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "G643N",
+            "ports": [
+              "FLL",
+              "CZM",
+              "BZE",
+              "RTB",
+              "FLL"
+            ],
+            "ship": {
+              "id": "GP",
+              "version": 9
+            },
+            "sailDate": "20261024",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261024",
+          "endDate": "20261031"
+        },
+        {
+          "id": "4645",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "4645",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20261107",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261107",
+          "endDate": "20261114"
+        },
+        {
+          "id": "U644",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "U644",
+            "ports": [
+              "FLL",
+              "CZM",
+              "MH1",
+              "RTB",
+              "FLL"
+            ],
+            "ship": {
+              "id": "SU",
+              "version": 3
+            },
+            "sailDate": "20261115",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261115",
+          "endDate": "20261122"
+        },
+        {
+          "id": "4647",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "4647",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20261121",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261121",
+          "endDate": "20261128"
+        },
+        {
+          "id": "4649",
+          "productCode": "CWF",
+          "voyage": {
+            "id": "4649",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20261205",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261205",
+          "endDate": "20261212"
+        },
+        {
+          "id": "4702",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4702",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270102",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270102",
+          "endDate": "20270109"
+        },
+        {
+          "id": "4704",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4704",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270116",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270116",
+          "endDate": "20270123"
+        },
+        {
+          "id": "U705",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "U705",
+            "ports": [
+              "FLL",
+              "CZM",
+              "BZE",
+              "RTB",
+              "FLL"
+            ],
+            "ship": {
+              "id": "SU",
+              "version": 3
+            },
+            "sailDate": "20270124",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270124",
+          "endDate": "20270131"
+        },
+        {
+          "id": "4706",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4706",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270130",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270130",
+          "endDate": "20270206"
+        },
+        {
+          "id": "4708",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4708",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270213",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270213",
+          "endDate": "20270220"
+        },
+        {
+          "id": "U711",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "U711",
+            "ports": [
+              "FLL",
+              "CZM",
+              "RTB",
+              "BZE",
+              "FLL"
+            ],
+            "ship": {
+              "id": "SU",
+              "version": 3
+            },
+            "sailDate": "20270307",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270307",
+          "endDate": "20270314"
+        },
+        {
+          "id": "4712",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4712",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270313",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270313",
+          "endDate": "20270320"
+        },
+        {
+          "id": "U713",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "U713",
+            "ports": [
+              "FLL",
+              "CZM",
+              "BZE",
+              "RTB",
+              "FLL"
+            ],
+            "ship": {
+              "id": "SU",
+              "version": 3
+            },
+            "sailDate": "20270321",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270321",
+          "endDate": "20270328"
+        },
+        {
+          "id": "4714",
+          "productCode": "CWW",
+          "voyage": {
+            "id": "4714",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270327",
+            "duration": 7,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270327",
+          "endDate": "20270403"
+        }
+      ]
+    },
+    {
+      "id": "CFF14E",
+      "name": "Eastern/Western Caribbean Adventurer",
+      "trades": [
+        {
+          "id": "C",
+          "subTrades": [
+            {
+              "id": "CE"
+            }
+          ]
+        }
+      ],
+      "subTrades": [
+        {
+          "id": "CE"
+        }
+      ],
+      "cruises": [
+        {
+          "id": "4643A",
+          "productCode": "CZF",
+          "voyage": {
+            "id": "4643A",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL",
+              "CBK",
+              "AC4",
+              "GDT",
+              "BIM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20261024",
+            "duration": 14,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20261024",
+          "endDate": "20261107"
+        },
+        {
+          "id": "4702A",
+          "productCode": "CZW",
+          "voyage": {
+            "id": "4702A",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL",
+              "GDT",
+              "AC4",
+              "BIM",
+              "CBK",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270102",
+            "duration": 14,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270102",
+          "endDate": "20270116"
+        },
+        {
+          "id": "4708A",
+          "productCode": "CZW",
+          "voyage": {
+            "id": "4708A",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL",
+              "GDT",
+              "AC4",
+              "BIM",
+              "CBK",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270213",
+            "duration": 14,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270213",
+          "endDate": "20270227"
+        },
+        {
+          "id": "4712A",
+          "productCode": "CZW",
+          "voyage": {
+            "id": "4712A",
+            "ports": [
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL",
+              "GDT",
+              "AC4",
+              "CBK",
+              "BIM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270313",
+            "duration": 14,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270313",
+          "endDate": "20270327"
+        },
+        {
+          "id": "4713A",
+          "productCode": "CZW",
+          "voyage": {
+            "id": "4713A",
+            "ports": [
+              "FLL",
+              "GDT",
+              "AC4",
+              "CBK",
+              "BIM",
+              "FLL",
+              "RTB",
+              "BZE",
+              "CZM",
+              "FLL"
+            ],
+            "ship": {
+              "id": "ST",
+              "version": 1
+            },
+            "sailDate": "20270320",
+            "duration": 14,
+            "startPortId": "FLL",
+            "endPortId": "FLL",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270320",
+          "endDate": "20270403"
+        }
+      ]
+    },
+    {
+      "id": "ZSR15B",
+      "name": "New Zealand",
+      "trades": [
+        {
+          "id": "Z",
+          "subTrades": [
+            {
+              "id": "ZZ"
+            }
+          ]
+        }
+      ],
+      "subTrades": [
+        {
+          "id": "ZZ"
+        }
+      ],
+      "cruises": [
+        {
+          "id": "A640",
+          "productCode": "UZF",
+          "voyage": {
+            "id": "A640",
+            "ports": [
+              "SYD",
+              "FJ1",
+              "PC3",
+              "CHC",
+              "PCN",
+              "AKL",
+              "BI1",
+              "TRG",
+              "SYD"
+            ],
+            "ship": {
+              "id": "AP",
+              "version": 5
+            },
+            "sailDate": "20261103",
+            "duration": 15,
+            "startPortId": "SYD",
+            "endPortId": "SYD",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "AUD",
+          "startDate": "20261103",
+          "endDate": "20261118"
+        }
+      ]
+    },
+    {
+      "id": "OSR24B",
+      "name": "Malaysia, Thailand & Vietnam with Halong Bay",
+      "trades": [
+        {
+          "id": "O"
+        }
+      ],
+      "cruises": [
+        {
+          "id": "M634A",
+          "productCode": "OUF",
+          "voyage": {
+            "id": "M634A",
+            "ports": [
+              "SIN",
+              "PH1",
+              "CXR",
+              "HB1",
+              "HB1",
+              "HBX",
+              "CM1",
+              "SIN",
+              "HKT",
+              "LGK",
+              "PEN",
+              "PK1",
+              "CXR",
+              "PH1",
+              "KOS",
+              "USM",
+              "SIN"
+            ],
+            "ship": {
+              "id": "DI",
+              "version": 8
+            },
+            "sailDate": "20261209",
+            "duration": 24,
+            "startPortId": "SIN",
+            "endPortId": "SIN",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "",
+          "startDate": "20261209",
+          "endDate": "20270102"
+        }
+      ]
+    },
+    {
+      "id": "AWG070",
+      "name": "Voyage of the Glaciers with Glacier Bay (Southbound)",
+      "trades": [
+        {
+          "id": "A",
+          "subTrades": [
+            {
+              "id": "AG"
+            }
+          ]
+        }
+      ],
+      "subTrades": [
+        {
+          "id": "AG"
+        }
+      ],
+      "cruises": [
+        {
+          "id": "3720",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3720",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270515",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270515",
+          "endDate": "20270522"
+        },
+        {
+          "id": "2711",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2711",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270519",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270519",
+          "endDate": "20270526"
+        },
+        {
+          "id": "X722",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X722",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270522",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270522",
+          "endDate": "20270529"
+        },
+        {
+          "id": "6709",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6709",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270526",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270526",
+          "endDate": "20270602"
+        },
+        {
+          "id": "3722",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3722",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270529",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270529",
+          "endDate": "20270605"
+        },
+        {
+          "id": "2713",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2713",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270602",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270602",
+          "endDate": "20270609"
+        },
+        {
+          "id": "X724",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X724",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270605",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270605",
+          "endDate": "20270612"
+        },
+        {
+          "id": "6711",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6711",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270609",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270609",
+          "endDate": "20270616"
+        },
+        {
+          "id": "3724",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3724",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270612",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270612",
+          "endDate": "20270619"
+        },
+        {
+          "id": "2715",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2715",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270616",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270616",
+          "endDate": "20270623"
+        },
+        {
+          "id": "X726",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X726",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270619",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270619",
+          "endDate": "20270626"
+        },
+        {
+          "id": "6713",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6713",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270623",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270623",
+          "endDate": "20270630"
+        },
+        {
+          "id": "3726",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3726",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270626",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270626",
+          "endDate": "20270703"
+        },
+        {
+          "id": "2717",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2717",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270630",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270630",
+          "endDate": "20270707"
+        },
+        {
+          "id": "X728",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X728",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270703",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270703",
+          "endDate": "20270710"
+        },
+        {
+          "id": "6715",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6715",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270707",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "",
+          "startDate": "20270707",
+          "endDate": "20270714"
+        },
+        {
+          "id": "3728",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3728",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270710",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270710",
+          "endDate": "20270717"
+        },
+        {
+          "id": "2719",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2719",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270714",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270714",
+          "endDate": "20270721"
+        },
+        {
+          "id": "X730",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X730",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270717",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270717",
+          "endDate": "20270724"
+        },
+        {
+          "id": "6717",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6717",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270721",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270721",
+          "endDate": "20270728"
+        },
+        {
+          "id": "3730",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3730",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270724",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270724",
+          "endDate": "20270731"
+        },
+        {
+          "id": "2721",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2721",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270728",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270728",
+          "endDate": "20270804"
+        },
+        {
+          "id": "X732",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X732",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270731",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270731",
+          "endDate": "20270807"
+        },
+        {
+          "id": "6719",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6719",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270804",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270804",
+          "endDate": "20270811"
+        },
+        {
+          "id": "3732",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3732",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270807",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270807",
+          "endDate": "20270814"
+        },
+        {
+          "id": "2723",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2723",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270811",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270811",
+          "endDate": "20270818"
+        },
+        {
+          "id": "X734",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X734",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270814",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270814",
+          "endDate": "20270821"
+        },
+        {
+          "id": "6721",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6721",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270818",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270818",
+          "endDate": "20270825"
+        },
+        {
+          "id": "3734",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3734",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270821",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270821",
+          "endDate": "20270828"
+        },
+        {
+          "id": "2725",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2725",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270825",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270825",
+          "endDate": "20270901"
+        },
+        {
+          "id": "X736",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X736",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270828",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270828",
+          "endDate": "20270904"
+        },
+        {
+          "id": "6723",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6723",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20270901",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270901",
+          "endDate": "20270908"
+        },
+        {
+          "id": "3736",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3736",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20270904",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270904",
+          "endDate": "20270911"
+        },
+        {
+          "id": "2727",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2727",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20270908",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270908",
+          "endDate": "20270915"
+        },
+        {
+          "id": "X738",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X738",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20270911",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20270911",
+          "endDate": "20270918"
+        },
+        {
+          "id": "X820",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X820",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280513",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280513",
+          "endDate": "20280520"
+        },
+        {
+          "id": "2811",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2811",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280517",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280517",
+          "endDate": "20280524"
+        },
+        {
+          "id": "3810",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3810",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280520",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280520",
+          "endDate": "20280527"
+        },
+        {
+          "id": "6810",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6810",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280524",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280524",
+          "endDate": "20280531"
+        },
+        {
+          "id": "X822",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X822",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280527",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280527",
+          "endDate": "20280603"
+        },
+        {
+          "id": "2813",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2813",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280531",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280531",
+          "endDate": "20280607"
+        },
+        {
+          "id": "3812",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3812",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280603",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280603",
+          "endDate": "20280610"
+        },
+        {
+          "id": "6812",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6812",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280607",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280607",
+          "endDate": "20280614"
+        },
+        {
+          "id": "X824",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X824",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280610",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280610",
+          "endDate": "20280617"
+        },
+        {
+          "id": "2815",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2815",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280614",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280614",
+          "endDate": "20280621"
+        },
+        {
+          "id": "3814",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3814",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280617",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280617",
+          "endDate": "20280624"
+        },
+        {
+          "id": "6814",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6814",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280621",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280621",
+          "endDate": "20280628"
+        },
+        {
+          "id": "X826",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X826",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280624",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280624",
+          "endDate": "20280701"
+        },
+        {
+          "id": "2817",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2817",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280628",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280628",
+          "endDate": "20280705"
+        },
+        {
+          "id": "3816",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3816",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280701",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280701",
+          "endDate": "20280708"
+        },
+        {
+          "id": "6816",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6816",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280705",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280705",
+          "endDate": "20280712"
+        },
+        {
+          "id": "X828",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X828",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280708",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280708",
+          "endDate": "20280715"
+        },
+        {
+          "id": "2819",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2819",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280712",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280712",
+          "endDate": "20280719"
+        },
+        {
+          "id": "3818",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3818",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280715",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280715",
+          "endDate": "20280722"
+        },
+        {
+          "id": "6818",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6818",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280719",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280719",
+          "endDate": "20280726"
+        },
+        {
+          "id": "X830",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X830",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280722",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280722",
+          "endDate": "20280729"
+        },
+        {
+          "id": "2821",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2821",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280726",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280726",
+          "endDate": "20280802"
+        },
+        {
+          "id": "3820",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3820",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280729",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280729",
+          "endDate": "20280805"
+        },
+        {
+          "id": "6820",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6820",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280802",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280802",
+          "endDate": "20280809"
+        },
+        {
+          "id": "X832",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X832",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280805",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280805",
+          "endDate": "20280812"
+        },
+        {
+          "id": "2823",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2823",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280809",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280809",
+          "endDate": "20280816"
+        },
+        {
+          "id": "3822",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3822",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280812",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280812",
+          "endDate": "20280819"
+        },
+        {
+          "id": "6822",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6822",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280816",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280816",
+          "endDate": "20280823"
+        },
+        {
+          "id": "X834",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X834",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280819",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280819",
+          "endDate": "20280826"
+        },
+        {
+          "id": "2825",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2825",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280823",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280823",
+          "endDate": "20280830"
+        },
+        {
+          "id": "3824",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3824",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280826",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280826",
+          "endDate": "20280902"
+        },
+        {
+          "id": "6824",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6824",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280830",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280830",
+          "endDate": "20280906"
+        },
+        {
+          "id": "X836",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "X836",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "PS2",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "XP",
+              "version": 3
+            },
+            "sailDate": "20280902",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280902",
+          "endDate": "20280909"
+        },
+        {
+          "id": "2827",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "2827",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "IP",
+              "version": 0
+            },
+            "sailDate": "20280906",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280906",
+          "endDate": "20280913"
+        },
+        {
+          "id": "3826",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "3826",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "KP",
+              "version": 9
+            },
+            "sailDate": "20280909",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280909",
+          "endDate": "20280916"
+        },
+        {
+          "id": "6826",
+          "productCode": "ASS",
+          "voyage": {
+            "id": "6826",
+            "ports": [
+              "WH1",
+              "YA1",
+              "GB1",
+              "SGY",
+              "JNU",
+              "KTN",
+              "YVR"
+            ],
+            "ship": {
+              "id": "CO",
+              "version": 7
+            },
+            "sailDate": "20280913",
+            "duration": 7,
+            "startPortId": "WH1",
+            "endPortId": "YVR",
+            "oceanFlag": "E",
+            "oceanDine": "Y",
+            "sailFlag": "",
+            "upperBerthGuarFlag": ""
+          },
+          "shipCurrency": "USD",
+          "startDate": "20280913",
+          "endDate": "20280920"
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 //! a scratch SQLite DB. Run:
 //!   nix develop -c cargo run -p royaltracker-web --example serve_public --features sqlite
 
+use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{PacingConfig, PublicClient, PublicClientConfig, DEFAULT_USER_AGENT};
 use royaltracker_storage::{connect, PriceRepo};
 use royaltracker_web::{public_router, PublicState};
@@ -19,6 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = PublicState {
         repo: Arc::new(repo),
         public_client: Arc::new(client),
+        princess: Arc::new(PrincessGuestClient::new(PacingConfig::default())?),
+        princess_extras: Default::default(),
+        schedule: Default::default(),
         identity: None,
     };
     let addr: std::net::SocketAddr = "127.0.0.1:8099".parse()?;

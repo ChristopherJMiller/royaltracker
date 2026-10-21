@@ -10,8 +10,8 @@ use std::sync::Arc;
 use crate::auth::{AuthedUser, TgAuthOnly};
 use crate::state::AppState;
 use royaltracker_api::{CruiseClient, CruiseClientConfig};
-use royaltracker_storage::NewUser;
-use royaltracker_types::Brand;
+use royaltracker_storage::{NewCruiseAccount, NewUser};
+use royaltracker_types::{Brand, CruiseAccount, CruiseLine};
 
 type ApiError = (StatusCode, String);
 
@@ -21,8 +21,15 @@ fn db_err(e: impl std::fmt::Display) -> ApiError {
 
 #[derive(Deserialize)]
 pub struct RegisterBody {
-    pub email: String,
+    #[serde(default = "default_line")]
+    pub cruise_line: CruiseLine,
+    #[serde(alias = "email")]
+    pub login: String,
     pub password: String,
+}
+
+fn default_line() -> CruiseLine {
+    CruiseLine::Rcg
 }
 
 #[derive(Serialize)]
@@ -32,34 +39,79 @@ pub struct RegisterResponse {
     pub message: String,
 }
 
+fn validate_register(line: CruiseLine, login: &str, password: &str) -> Result<(), ApiError> {
+    if password.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "password is empty".into()));
+    }
+    if login.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "login is empty".into()));
+    }
+    if line == CruiseLine::Rcg && !login.contains('@') {
+        return Err((StatusCode::BAD_REQUEST, "invalid email".into()));
+    }
+    Ok(())
+}
+
+fn decrypt_password(s: &AppState, acct: &CruiseAccount) -> Result<String, ApiError> {
+    let pw_bytes = s
+        .cipher
+        .decrypt(&acct.password_nonce, &acct.password_ct)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("decrypt: {e}")))?;
+    String::from_utf8(pw_bytes)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("password not utf8: {e}")))
+}
+
+#[derive(Serialize)]
+pub struct AccountDto {
+    pub cruise_line: String,
+    pub label: String,
+    pub login: String,
+    pub active: bool,
+    pub last_login_at: Option<chrono::DateTime<Utc>>,
+    pub last_login_error: Option<String>,
+}
+
+impl From<&CruiseAccount> for AccountDto {
+    fn from(a: &CruiseAccount) -> Self {
+        AccountDto {
+            cruise_line: a.line.as_str().to_string(),
+            label: a.line.label().to_string(),
+            login: a.login.clone(),
+            active: a.active,
+            last_login_at: a.last_login_at,
+            last_login_error: a.last_login_error.clone(),
+        }
+    }
+}
+
 pub async fn register(
     State(s): State<Arc<AppState>>,
     auth: TgAuthOnly,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<RegisterResponse>, ApiError> {
-    let email = body.email.trim().to_string();
-    if !email.contains('@') {
-        return Err((StatusCode::BAD_REQUEST, "invalid email".into()));
-    }
-    if body.password.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "password is empty".into()));
-    }
+    let login = body.login.trim().to_string();
+    validate_register(body.cruise_line, &login, &body.password)?;
 
     let (nonce, ct) = s
         .cipher
         .encrypt(body.password.as_bytes())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("encryption: {e}")))?;
 
-    s.repo
+    let user_id = s
+        .repo
         .upsert_user(&NewUser {
             telegram_chat_id: auth.tg.id,
             telegram_username: auth.tg.username.as_deref(),
-            rcg_username: &email,
-            rcg_password_ct: &ct,
-            rcg_password_nonce: &nonce,
-            // brand_pref is legacy: scraper now hits both brands regardless.
-            // Default to Royal; the value is unused by the discovery flow.
-            brand_pref: Brand::Royal,
+        })
+        .await
+        .map_err(db_err)?;
+    s.repo
+        .upsert_cruise_account(&NewCruiseAccount {
+            user_id,
+            line: body.cruise_line,
+            login: &login,
+            password_ct: &ct,
+            password_nonce: &nonce,
         })
         .await
         .map_err(db_err)?;
@@ -70,39 +122,29 @@ pub async fn register(
         .await
         .map_err(db_err)?
         .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "user vanished post-upsert".into()))?;
+    let account = s
+        .repo
+        .list_cruise_accounts(user_id)
+        .await
+        .map_err(db_err)?
+        .into_iter()
+        .find(|a| a.line == body.cruise_line)
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "account vanished post-upsert".into()))?;
 
-    let report = royaltracker_core::discover_and_persist_bookings(
-        &email,
-        &body.password,
-        s.rcg_basic_auth_b64.as_ref(),
+    let report = royaltracker_core::discover_account(
         s.repo.as_ref(),
+        s.rcg_basic_auth_b64.as_ref(),
         &db_user,
+        &account,
+        &body.password,
+        None,
     )
     .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("discovery: {e}")))?;
+    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("discovery: {e}")))?
+    .report;
 
     let login_ok = report.logins_ok > 0;
-    let message = if login_ok && report.errors.is_empty() {
-        format!(
-            "Linked. Discovered {n} booking{plural} across {brands} brand{bplural}.",
-            n = report.persisted,
-            plural = if report.persisted == 1 { "" } else { "s" },
-            brands = report.logins_ok,
-            bplural = if report.logins_ok == 1 { "" } else { "s" },
-        )
-    } else if login_ok {
-        format!(
-            "Linked partially. {n} bookings persisted; some brands errored: {errs}",
-            n = report.persisted,
-            errs = report.errors.join("; "),
-        )
-    } else {
-        format!(
-            "Credentials saved, but no brand login succeeded: {errs}. \
-             Re-register to overwrite, or wait if rate-limited.",
-            errs = report.errors.join("; "),
-        )
-    };
+    let message = register_message(body.cruise_line, report.persisted, report.logins_ok, &report.errors);
 
     Ok(Json(RegisterResponse {
         login_ok,
@@ -115,27 +157,75 @@ pub async fn refresh(
     State(s): State<Arc<AppState>>,
     user: AuthedUser,
 ) -> Result<Json<RefreshResponse>, ApiError> {
-    let pw_bytes = s
-        .cipher
-        .decrypt(&user.db_user.rcg_password_nonce, &user.db_user.rcg_password_ct)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("decrypt: {e}")))?;
-    let password = String::from_utf8(pw_bytes)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("password not utf8: {e}")))?;
-
-    let report = royaltracker_core::discover_and_persist_bookings(
-        &user.db_user.rcg_username,
-        &password,
-        s.rcg_basic_auth_b64.as_ref(),
-        s.repo.as_ref(),
-        &user.db_user,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("refresh: {e}")))?;
-
+    let accounts = s
+        .repo
+        .list_cruise_accounts(user.db_user.id)
+        .await
+        .map_err(db_err)?;
+    let mut total = 0usize;
+    let mut errors = Vec::new();
+    for acct in accounts.iter().filter(|a| a.active) {
+        let label = acct.line.label();
+        let password = match decrypt_password(&s, acct) {
+            Ok(p) => p,
+            Err((_, e)) => {
+                errors.push(format!("{label}: {e}"));
+                continue;
+            }
+        };
+        match royaltracker_core::discover_account(
+            s.repo.as_ref(),
+            s.rcg_basic_auth_b64.as_ref(),
+            &user.db_user,
+            acct,
+            &password,
+            None,
+        )
+        .await
+        {
+            Ok(d) => {
+                total += d.report.persisted;
+                errors.extend(d.report.errors.into_iter().map(|e| format!("{label}: {e}")));
+            }
+            Err(e) => errors.push(format!("{label}: {e}")),
+        }
+    }
     Ok(Json(RefreshResponse {
-        bookings_discovered: report.persisted,
-        errors: report.errors,
+        bookings_discovered: total,
+        errors,
     }))
+}
+
+pub async fn list_accounts(
+    State(s): State<Arc<AppState>>,
+    user: AuthedUser,
+) -> Result<Json<Vec<AccountDto>>, ApiError> {
+    let accts = s
+        .repo
+        .list_cruise_accounts(user.db_user.id)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(accts.iter().map(AccountDto::from).collect()))
+}
+
+pub async fn delete_account(
+    State(s): State<Arc<AppState>>,
+    user: AuthedUser,
+    Path(line): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let line = line
+        .parse::<CruiseLine>()
+        .map_err(|_| (StatusCode::NOT_FOUND, "account not found".into()))?;
+    let removed = s
+        .repo
+        .remove_cruise_account(user.db_user.id, line)
+        .await
+        .map_err(db_err)?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "account not found".into()))
+    }
 }
 
 #[derive(Serialize)]
@@ -173,10 +263,21 @@ pub async fn refresh_catalog(
         .find(|b| b.reservation_id == body.reservation_id)
         .ok_or((StatusCode::NOT_FOUND, "booking not found".into()))?;
 
+    if booking.brand == Brand::Princess {
+        let persisted = royaltracker_core::refresh_princess_catalog(
+            s.princess.as_ref(),
+            s.princess_extras.as_ref(),
+            s.repo.as_ref(),
+            &booking,
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("catalog: {e}")))?;
+        return Ok(Json(CatalogRefreshResponse { products_persisted: persisted }));
+    }
     // GraphQL endpoint is anonymous (appkey only), so we don't need the user's
-    // credentials at all. Build a client with a placeholder brand.
+    // credentials at all. Build a client with the booking's brand.
     let api_cfg = CruiseClientConfig::web(
-        royaltracker_types::Brand::Royal,
+        booking.brand,
         String::new(),
         String::new(),
         s.rcg_basic_auth_b64.as_ref().clone(),
@@ -198,24 +299,35 @@ pub struct MeResponse {
     pub tg_id: i64,
     pub tg_username: Option<String>,
     pub tg_first_name: Option<String>,
-    pub rcg_username: String,
-    pub brand: String,
+    pub accounts: Vec<AccountDto>,
 }
 
-pub async fn get_me(user: AuthedUser) -> Json<MeResponse> {
-    Json(MeResponse {
+pub async fn get_me(
+    State(s): State<Arc<AppState>>,
+    user: AuthedUser,
+) -> Result<Json<MeResponse>, ApiError> {
+    let accts = s
+        .repo
+        .list_cruise_accounts(user.db_user.id)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(MeResponse {
         tg_id: user.tg.id,
         tg_username: user.tg.username,
         tg_first_name: user.tg.first_name,
-        rcg_username: user.db_user.rcg_username,
-        brand: user.db_user.brand_pref.to_string(),
-    })
+        accounts: accts.iter().map(AccountDto::from).collect(),
+    }))
 }
 
 #[derive(Serialize)]
 pub struct BookingDto {
     pub reservation_id: String,
     pub brand: String,
+    pub brand_label: String,
+    pub ship_name: Option<String>,
+    pub voyage_code: Option<String>,
+    /// ISO currency of the booking's prices; `None` = USD.
+    pub currency: Option<String>,
     pub ship_code: String,
     pub sail_date: chrono::NaiveDate,
     pub nights: Option<i32>,
@@ -276,7 +388,7 @@ pub async fn list_bookings(
             .assigned_stateroom
             .as_deref()
             .or_else(|| b.stateroom.as_deref().filter(|r| *r != "GTY"));
-        let loc = effective_cabin.and_then(|c| royaltracker_types::cabin_location(&b.ship_code, c));
+        let loc = effective_cabin.and_then(|c| royaltracker_types::cabin_location(b.brand, &b.ship_code, c));
         let (deck, height_tier, location_notes) = match loc {
             Some(l) => (
                 Some(l.deck as i32),
@@ -288,6 +400,10 @@ pub async fn list_bookings(
         out.push(BookingDto {
             reservation_id: b.reservation_id,
             brand: b.brand.to_string(),
+            brand_label: b.brand.label().to_string(),
+            ship_name: royaltracker_types::ship_name(b.brand, &b.ship_code).map(str::to_string),
+            voyage_code: b.voyage_code,
+            currency: b.currency,
             ship_code: b.ship_code,
             sail_date: b.sail_date,
             nights: b.nights,
@@ -316,12 +432,12 @@ fn default_limit() -> i64 {
 
 pub async fn search_catalog(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<CatalogDto>>, ApiError> {
     let entries = s
         .repo
-        .search_catalog(&q.q, q.limit)
+        .search_catalog(user.db_user.id, &q.q, q.limit)
         .await
         .map_err(db_err)?;
     Ok(Json(entries.into_iter().map(CatalogDto::from).collect()))
@@ -334,9 +450,17 @@ pub struct BrowseQuery {
 
 pub async fn browse_catalog(
     State(s): State<Arc<AppState>>,
-    _user: AuthedUser,
+    user: AuthedUser,
     Query(q): Query<BrowseQuery>,
 ) -> Result<Json<Vec<CatalogDto>>, ApiError> {
+    if !s
+        .repo
+        .user_owns_reservation(user.db_user.id, &q.reservation_id)
+        .await
+        .map_err(db_err)?
+    {
+        return Err((StatusCode::NOT_FOUND, "booking not found".into()));
+    }
     let entries = s
         .repo
         .list_catalog_by_reservation(&q.reservation_id)
@@ -569,6 +693,8 @@ pub async fn history(
 
 #[derive(Deserialize)]
 pub struct DeckPlanQuery {
+    /// Brand key: "royal", "celebrity" or "princess".
+    pub brand: String,
     /// Two-letter ship code (e.g. "WN").
     pub ship: String,
     pub deck: i32,
@@ -593,6 +719,13 @@ pub async fn deck_plan(
     if !(1..=25).contains(&q.deck) {
         return Err((StatusCode::BAD_REQUEST, "invalid deck".into()));
     }
+    let brand = q
+        .brand
+        .parse::<Brand>()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "unknown brand".into()))?;
+    if brand == Brand::Princess {
+        return Err((StatusCode::NOT_FOUND, "deck plans not available".into()));
+    }
     // Ownership gate: the caller must have a booking on this ship. Otherwise the
     // endpoint is an open proxy for arbitrary cruisedeckplans scrapes.
     let owns_ship = s
@@ -601,11 +734,11 @@ pub async fn deck_plan(
         .await
         .map_err(db_err)?
         .iter()
-        .any(|b| b.ship_code.eq_ignore_ascii_case(&q.ship));
+        .any(|b| b.brand == brand && b.ship_code.eq_ignore_ascii_case(&q.ship));
     if !owns_ship {
         return Err((StatusCode::NOT_FOUND, "not found".into()));
     }
-    let Some(name) = royaltracker_types::ship_name(&q.ship) else {
+    let Some(name) = royaltracker_types::ship_name(brand, &q.ship) else {
         return Err((StatusCode::NOT_FOUND, "unknown ship".into()));
     };
     let slug = name.replace(' ', "-");
@@ -615,7 +748,7 @@ pub async fn deck_plan(
     );
 
     // Deck plans never change, so a cached URL is authoritative.
-    if let Some(dp) = s.repo.get_deck_plan(&q.ship, q.deck).await.map_err(db_err)? {
+    if let Some(dp) = s.repo.get_deck_plan(brand, &q.ship, q.deck).await.map_err(db_err)? {
         return Ok(Json(DeckPlanResponse {
             image_url: dp.image_url,
             source_url,
@@ -624,7 +757,7 @@ pub async fn deck_plan(
 
     // Cache miss: anonymous scrape (appkey-only client, no user creds needed).
     let client = CruiseClient::new(CruiseClientConfig::web(
-        Brand::Royal,
+        brand,
         String::new(),
         String::new(),
         s.rcg_basic_auth_b64.as_ref().clone(),
@@ -638,6 +771,7 @@ pub async fn deck_plan(
         .ok_or((StatusCode::NOT_FOUND, "deck plan not found".to_string()))?;
 
     let dp = DeckPlan {
+        brand,
         ship_code: q.ship.clone(),
         deck: q.deck,
         image_url: image_url.clone(),
@@ -651,4 +785,94 @@ pub async fn deck_plan(
         image_url,
         source_url,
     }))
+}
+
+/// User-facing message for a completed register/discovery run.
+fn register_message(line: CruiseLine, persisted: usize, logins_ok: usize, errors: &[String]) -> String {
+    let plural = if persisted == 1 { "" } else { "s" };
+    if line == CruiseLine::Princess {
+        if errors.iter().any(|e| e == royaltracker_core::PRINCESS_NO_BOOKING_MSG) {
+            return royaltracker_core::PRINCESS_NO_BOOKING_MSG.to_string();
+        }
+        if logins_ok > 0 && errors.is_empty() {
+            return format!("Linked. Discovered {persisted} booking{plural}.");
+        }
+    } else if logins_ok > 0 && errors.is_empty() {
+        return format!(
+            "Linked. Discovered {persisted} booking{plural} across {logins_ok} brand{}.",
+            if logins_ok == 1 { "" } else { "s" },
+        );
+    }
+    if logins_ok > 0 {
+        format!(
+            "Linked partially. {persisted} bookings persisted; some brands errored: {}",
+            errors.join("; "),
+        )
+    } else {
+        format!(
+            "Credentials saved, but no login succeeded: {}. \
+             Re-register to overwrite, or wait if rate-limited.",
+            errors.join("; "),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use royaltracker_types::{CruiseAccount, CruiseLine};
+
+    fn sample_account() -> CruiseAccount {
+        CruiseAccount {
+            id: 1,
+            user_id: 2,
+            line: CruiseLine::Princess,
+            login: "LOGINID".into(),
+            password_ct: vec![1, 2, 3],
+            password_nonce: vec![4, 5, 6],
+            active: true,
+            last_login_at: None,
+            last_login_error: None,
+        }
+    }
+
+    #[test]
+    fn register_message_per_line() {
+        let m = |l, p, ok, e: &[&str]| register_message(l, p, ok, &e.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(m(CruiseLine::Rcg, 2, 2, &[]), "Linked. Discovered 2 bookings across 2 brands.");
+        assert_eq!(m(CruiseLine::Princess, 1, 1, &[]), "Linked. Discovered 1 booking.");
+        assert_eq!(
+            m(CruiseLine::Princess, 0, 1, &[royaltracker_core::PRINCESS_NO_BOOKING_MSG]),
+            royaltracker_core::PRINCESS_NO_BOOKING_MSG
+        );
+        assert!(m(CruiseLine::Princess, 0, 0, &["bad"]).starts_with("Credentials saved"));
+    }
+
+    #[test]
+    fn register_validation() {
+        assert!(validate_register(CruiseLine::Rcg, "a@b.c", "pw").is_ok());
+        assert!(validate_register(CruiseLine::Rcg, "nope", "pw").is_err());
+        assert!(validate_register(CruiseLine::Princess, "LOGINID", "pw").is_ok());
+        assert!(validate_register(CruiseLine::Princess, "x", "").is_err());
+    }
+
+    #[test]
+    fn account_dto_never_contains_secrets() {
+        let dto = AccountDto::from(&sample_account());
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(!json.contains("password"));
+        assert!(!json.contains("_ct"));
+        assert_eq!(dto.label, "Princess");
+        assert_eq!(dto.cruise_line, "princess");
+    }
+
+    #[test]
+    fn register_body_defaults_and_alias() {
+        let b: RegisterBody = serde_json::from_str(r#"{"email":"a@b.c","password":"p"}"#).unwrap();
+        assert_eq!(b.cruise_line, CruiseLine::Rcg);
+        assert_eq!(b.login, "a@b.c");
+        let b: RegisterBody =
+            serde_json::from_str(r#"{"cruise_line":"princess","login":"X","password":"p"}"#).unwrap();
+        assert_eq!(b.cruise_line, CruiseLine::Princess);
+    }
 }
