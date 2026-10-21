@@ -66,9 +66,30 @@ fn row_to_user_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<User, StorageError> 
 #[async_trait]
 impl PriceRepo for SqliteRepo {
     async fn migrate(&self) -> Result<(), StorageError> {
-        sqlx::migrate!("../../migrations/sqlite")
-            .run(&self.pool)
+        // Table-rebuild migrations (0012) need foreign_keys OFF, otherwise
+        // DROP TABLE cascades into child rows. The pragma is a no-op inside a
+        // transaction, so set it on one dedicated connection before the
+        // migrator opens its per-migration transactions.
+        let mut conn = self.pool.acquire().await?;
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *conn)
             .await?;
+        let migrated = sqlx::migrate!("../../migrations/sqlite")
+            .run_direct(&mut *conn)
+            .await;
+        let violations = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut *conn)
+            .await;
+        // Always restore enforcement before the connection returns to the pool.
+        let restored = sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut *conn)
+            .await;
+        migrated?;
+        restored?;
+        let n = violations?.len();
+        if n > 0 {
+            return Err(StorageError::ForeignKeyCheck(n));
+        }
         Ok(())
     }
 
