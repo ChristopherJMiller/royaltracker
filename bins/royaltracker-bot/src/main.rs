@@ -5,14 +5,14 @@ use royaltracker_api::{
 };
 use royaltracker_config::Config;
 use royaltracker_crypto::Cipher;
-use royaltracker_storage::{connect, DefaultRepo, NewUser, PriceRepo};
-use royaltracker_types::Brand;
+use royaltracker_storage::{connect, DefaultRepo, NewCruiseAccount, NewUser, PriceRepo};
+use royaltracker_types::{Brand, CruiseAccount, CruiseLine};
 use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::dispatching::dialogue::{self, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::types::{
-    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButton, ParseMode, WebAppInfo,
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButton, WebAppInfo,
 };
 use teloxide::utils::command::BotCommands;
 use tracing_subscriber::EnvFilter;
@@ -24,8 +24,10 @@ enum Command {
     Start,
     #[command(description = "show this help")]
     Help,
-    #[command(description = "register your Royal Caribbean / Celebrity account")]
+    #[command(description = "link a cruise line account (Royal Caribbean & Celebrity, or Princess)")]
     Register,
+    #[command(description = "list or remove your linked cruise accounts")]
+    Accounts,
     #[command(description = "remove your account (deletes encrypted credentials)")]
     Unregister,
     #[command(description = "test your stored credentials by logging in")]
@@ -46,9 +48,20 @@ enum Command {
 enum DialogueState {
     #[default]
     Idle,
-    AwaitingEmail,
-    AwaitingPassword { email: String },
-    AwaitingBrand { email: String, password: String },
+    AwaitingLine,
+    AwaitingLogin { line: CruiseLine },
+    AwaitingPassword { line: CruiseLine, login: String },
+}
+
+/// Cruise lines offered for linking. Part A exposes RCG only; Task 12 adds Princess.
+const ENABLED_LINES: &[CruiseLine] = &[CruiseLine::Rcg];
+
+fn line_keyboard(lines: &[CruiseLine]) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(
+        lines
+            .iter()
+            .map(|l| [InlineKeyboardButton::callback(l.label(), format!("line:{l}"))]),
+    )
 }
 
 type Dialog = Dialogue<DialogueState, InMemStorage<DialogueState>>;
@@ -228,9 +241,9 @@ async fn on_command(
     match cmd {
         Command::Start => {
             let greeting = "👋 Welcome to the Cruise Planner price-drop bot.\n\n\
-                I watch your Royal Caribbean / Celebrity add-on prices and ping you when they drop.\n\n\
+                I watch your cruise add-on prices and ping you when they drop.\n\n\
                 Tap the dashboard below to see prices, charts, and manage what you track. \
-                If this is your first time, run /register to link your RCG account first.";
+                If this is your first time, run /register to link a cruise account first.";
             let kb = open_dashboard_keyboard(&app.web_app_url);
             bot.send_message(msg.chat.id, greeting)
                 .reply_markup(kb)
@@ -250,13 +263,13 @@ async fn on_command(
                 .await?;
         }
         Command::Register => {
-            dialog.update(DialogueState::AwaitingEmail).await.ok();
-            bot.send_message(
-                msg.chat.id,
-                "Let's set up your Royal Caribbean / Celebrity account.\n\n\
-                 What's your account email address?",
-            )
-            .await?;
+            dialog.update(DialogueState::AwaitingLine).await.ok();
+            bot.send_message(msg.chat.id, "Which cruise line would you like to link?")
+                .reply_markup(line_keyboard(ENABLED_LINES))
+                .await?;
+        }
+        Command::Accounts => {
+            handle_accounts(&bot, msg.chat.id, &app).await?;
         }
         Command::Cancel => {
             dialog.update(DialogueState::Idle).await.ok();
@@ -295,7 +308,7 @@ async fn on_message(
     bot: Bot,
     msg: Message,
     dialog: Dialog,
-    _app: AppState,
+    app: AppState,
 ) -> Result<(), teloxide::RequestError> {
     let state = dialog.get().await.ok().flatten().unwrap_or_default();
     let Some(text) = msg.text().map(str::trim).map(str::to_owned) else {
@@ -306,14 +319,21 @@ async fn on_message(
         DialogueState::Idle => {
             // ignore stray messages
         }
-        DialogueState::AwaitingEmail => {
-            if !text.contains('@') {
+        DialogueState::AwaitingLine => {
+            bot.send_message(
+                msg.chat.id,
+                "Tap one of the buttons above, or /cancel to start over.",
+            )
+            .await?;
+        }
+        DialogueState::AwaitingLogin { line } => {
+            if line == CruiseLine::Rcg && !text.contains('@') {
                 bot.send_message(msg.chat.id, "That doesn't look like an email. Try again, or /cancel.")
                     .await?;
                 return Ok(());
             }
             dialog
-                .update(DialogueState::AwaitingPassword { email: text })
+                .update(DialogueState::AwaitingPassword { line, login: text })
                 .await
                 .ok();
             bot.send_message(
@@ -324,37 +344,98 @@ async fn on_message(
             )
             .await?;
         }
-        DialogueState::AwaitingPassword { email } => {
+        DialogueState::AwaitingPassword { line, login } => {
             // Delete the password message ASAP, regardless of whether storage succeeds.
             let _ = bot.delete_message(msg.chat.id, msg.id).await;
-
-            // Stash the password in dialogue state through the brand-pick step.
-            dialog
-                .update(DialogueState::AwaitingBrand {
-                    email,
-                    password: text,
-                })
-                .await
-                .ok();
-
-            let kb = InlineKeyboardMarkup::new([[
-                InlineKeyboardButton::callback("Royal Caribbean", "brand:royal"),
-                InlineKeyboardButton::callback("Celebrity", "brand:celebrity"),
-            ]]);
-            bot.send_message(
-                msg.chat.id,
-                "Password received and your message has been deleted.\n\n\
-                 Which cruise line is your account under?",
-            )
-            .reply_markup(kb)
-            .await?;
+            dialog.update(DialogueState::Idle).await.ok();
+            let tg_username = msg.from.as_ref().and_then(|u| u.username.clone());
+            link_account(&bot, msg.chat.id, tg_username, line, login, text, &app).await?;
         }
-        DialogueState::AwaitingBrand { .. } => {
+    }
+    Ok(())
+}
+
+async fn link_account(
+    bot: &Bot,
+    chat: ChatId,
+    tg_username: Option<String>,
+    line: CruiseLine,
+    login: String,
+    password: String,
+    app: &AppState,
+) -> Result<(), teloxide::RequestError> {
+    let (nonce, ct) = match app.cipher.encrypt(password.as_bytes()) {
+        Ok(p) => p,
+        Err(e) => {
+            bot.send_message(chat, format!("encryption error: {e}")).await?;
+            return Ok(());
+        }
+    };
+    let user_id = match app
+        .repo
+        .upsert_user(&NewUser {
+            telegram_chat_id: chat.0,
+            telegram_username: tg_username.as_deref(),
+        })
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            bot.send_message(chat, format!("storage error: {e}")).await?;
+            return Ok(());
+        }
+    };
+    let account_id = match app
+        .repo
+        .upsert_cruise_account(&NewCruiseAccount {
+            user_id,
+            line,
+            login: &login,
+            password_ct: &ct,
+            password_nonce: &nonce,
+        })
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            bot.send_message(chat, format!("storage error: {e}")).await?;
+            return Ok(());
+        }
+    };
+
+    bot.send_message(chat, format!("✅ Stored. Testing {} login…", line.label()))
+        .await?;
+
+    let outcome = test_login(app, line, &login, &password).await;
+    let err_text = outcome.as_ref().err().map(|e| e.to_string());
+    app.repo
+        .record_login_outcome(account_id, err_text.as_deref())
+        .await
+        .ok();
+    match outcome {
+        Ok(_) => {
             bot.send_message(
-                msg.chat.id,
-                "Tap one of the buttons above, or /cancel to start over.",
+                chat,
+                format!(
+                    "✅ {} login succeeded.\n\n\
+                     Use /accounts to manage linked accounts, /unregister to remove everything.",
+                    line.label()
+                ),
             )
-            .await?;
+            .await
+            .ok();
+        }
+        Err(e) => {
+            bot.send_message(
+                chat,
+                format!(
+                    "⚠️ Stored your credentials, but the login test failed:\n{e}\n\n\
+                     If this was a typo, /register again to overwrite. \
+                     Otherwise wait 15+ minutes (rate-limit) and /test."
+                ),
+            )
+            .await
+            .ok();
         }
     }
     Ok(())
@@ -375,121 +456,145 @@ async fn on_callback(
         return Ok(());
     };
 
-    if let Some(brand_str) = data.strip_prefix("brand:") {
-        let brand = match Brand::from_str(brand_str) {
-            Ok(b) => b,
-            Err(_) => return Ok(()),
+    if let Some(line_str) = data.strip_prefix("line:") {
+        let Ok(line) = CruiseLine::from_str(line_str) else {
+            return Ok(());
         };
-
+        if !ENABLED_LINES.contains(&line) {
+            return Ok(());
+        }
         let state = dialog.get().await.ok().flatten().unwrap_or_default();
-        let DialogueState::AwaitingBrand { email, password } = state else {
+        if !matches!(state, DialogueState::AwaitingLine) {
             bot.send_message(chat, "No registration in progress. Use /register to start.")
                 .await?;
             return Ok(());
+        }
+        dialog.update(DialogueState::AwaitingLogin { line }).await.ok();
+        let prompt = match line {
+            CruiseLine::Rcg => "What's your account email address?",
+            CruiseLine::Princess => "What's your Princess account login?",
         };
-
-        let (nonce, ct) = match app.cipher.encrypt(password.as_bytes()) {
-            Ok(p) => p,
-            Err(e) => {
-                bot.send_message(chat, format!("encryption error: {e}"))
-                    .await?;
-                return Ok(());
-            }
-        };
-
-        let tg_user = q.from.username.clone();
-        let new_user = NewUser {
-            telegram_chat_id: chat.0,
-            telegram_username: tg_user.as_deref(),
-            rcg_username: &email,
-            rcg_password_ct: &ct,
-            rcg_password_nonce: &nonce,
-            brand_pref: brand,
-        };
-
-        if let Err(e) = app.repo.upsert_user(&new_user).await {
-            bot.send_message(chat, format!("storage error: {e}")).await?;
-            dialog.update(DialogueState::Idle).await.ok();
+        bot.send_message(chat, format!("Linking {}. {prompt}", line.label()))
+            .await?;
+    } else if let Some(line_str) = data.strip_prefix("rmacct:") {
+        let Ok(line) = CruiseLine::from_str(line_str) else {
             return Ok(());
-        }
-
-        dialog.update(DialogueState::Idle).await.ok();
-        bot.send_message(
-            chat,
-            format!(
-                "✅ Stored. Testing login against {}...",
-                match brand {
-                    Brand::Royal => "Royal Caribbean",
-                    Brand::Celebrity => "Celebrity",
-                }
-            ),
-        )
-        .await?;
-
-        match try_login(&app, chat.0).await {
-            Ok(account_id) => {
-                bot.send_message(
-                    chat,
-                    format!(
-                        "✅ Login succeeded.\nYour RCG accountId: `{account_id}`\n\n\
-                         Use /watch to manage tracked products, /unregister to remove your account."
-                    ),
-                )
-                .parse_mode(ParseMode::MarkdownV2)
-                .await
-                .ok();
-            }
-            Err(e) => {
-                bot.send_message(
-                    chat,
-                    format!(
-                        "⚠️ Stored your credentials, but the login test failed:\n{e}\n\n\
-                         If this was a typo, /register again to overwrite. \
-                         Otherwise wait 15+ minutes (rate-limit) and /test."
-                    ),
-                )
-                .await
-                .ok();
-            }
-        }
+        };
+        let msg = match app.repo.get_user_by_chat_id(chat.0).await {
+            Ok(Some(user)) => match app.repo.remove_cruise_account(user.id, line).await {
+                Ok(true) => format!("Removed your {} account.", line.label()),
+                Ok(false) => format!("No {} account was linked.", line.label()),
+                Err(e) => format!("error: {e}"),
+            },
+            Ok(None) => "You have no linked accounts.".to_string(),
+            Err(e) => format!("error: {e}"),
+        };
+        bot.send_message(chat, msg).await?;
     }
+    Ok(())
+}
+
+async fn user_accounts(app: &AppState, chat: ChatId) -> Vec<CruiseAccount> {
+    match app.repo.get_user_by_chat_id(chat.0).await {
+        Ok(Some(user)) => app.repo.list_cruise_accounts(user.id).await.unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+async fn handle_accounts(
+    bot: &Bot,
+    chat: ChatId,
+    app: &AppState,
+) -> Result<(), teloxide::RequestError> {
+    let accounts = user_accounts(app, chat).await;
+    if accounts.is_empty() {
+        bot.send_message(chat, "No linked accounts. Use /register to link one.")
+            .await?;
+        return Ok(());
+    }
+    let mut text = String::from("Your linked accounts:\n");
+    let mut rows = Vec::new();
+    for a in &accounts {
+        let status = match &a.last_login_error {
+            Some(e) => format!("⚠️ {e}"),
+            None => "✅".to_string(),
+        };
+        text.push_str(&format!("• {} · {} · {status}\n", a.line.label(), a.login));
+        rows.push([InlineKeyboardButton::callback(
+            format!("Remove {}", a.line.label()),
+            format!("rmacct:{}", a.line),
+        )]);
+    }
+    bot.send_message(chat, text)
+        .reply_markup(InlineKeyboardMarkup::new(rows))
+        .await?;
     Ok(())
 }
 
 async fn handle_test(bot: &Bot, msg: &Message, app: &AppState) -> Result<(), teloxide::RequestError> {
     let chat_id = msg.chat.id;
-    match try_login(app, chat_id.0).await {
-        Ok(account_id) => {
-            bot.send_message(chat_id, format!("✅ Login OK. accountId={account_id}"))
-                .await?;
-        }
-        Err(e) => {
-            bot.send_message(chat_id, format!("❌ Login failed: {e}")).await?;
+    let accounts = user_accounts(app, chat_id).await;
+    if accounts.is_empty() {
+        bot.send_message(chat_id, "Not registered — use /register first.").await?;
+        return Ok(());
+    }
+    for a in &accounts {
+        let outcome = test_account(app, a).await;
+        let err_text = outcome.as_ref().err().map(|e| e.to_string());
+        app.repo.record_login_outcome(a.id, err_text.as_deref()).await.ok();
+        match outcome {
+            Ok(_) => {
+                bot.send_message(chat_id, format!("✅ {} login OK.", a.line.label())).await?;
+            }
+            Err(e) => {
+                bot.send_message(chat_id, format!("❌ {} login failed: {e}", a.line.label()))
+                    .await?;
+            }
         }
     }
     Ok(())
 }
 
-async fn try_login(app: &AppState, chat_id: i64) -> anyhow::Result<String> {
-    let user = app
-        .repo
-        .get_user_by_chat_id(chat_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("not registered — use /register first"))?;
-
-    let pw_bytes = app
-        .cipher
-        .decrypt(&user.rcg_password_nonce, &user.rcg_password_ct)?;
+async fn test_account(app: &AppState, a: &CruiseAccount) -> anyhow::Result<String> {
+    let pw_bytes = app.cipher.decrypt(&a.password_nonce, &a.password_ct)?;
     let password = String::from_utf8(pw_bytes)?;
-
-    let api_cfg = CruiseClientConfig::web(
-        user.brand_pref,
-        user.rcg_username.clone(),
-        password,
-        app.rcg_basic_auth_b64.as_ref().clone(),
-    );
-    let api = CruiseClient::new(api_cfg)?;
-    let token = api.login().await?;
-    Ok(token.account_id)
+    test_login(app, a.line, &a.login, &password).await
 }
 
+/// Logs in for the given line; returns an account identifier on success.
+async fn test_login(
+    app: &AppState,
+    line: CruiseLine,
+    login: &str,
+    password: &str,
+) -> anyhow::Result<String> {
+    match line {
+        CruiseLine::Rcg => {
+            let api_cfg = CruiseClientConfig::web(
+                Brand::Royal,
+                login.to_string(),
+                password.to_string(),
+                app.rcg_basic_auth_b64.as_ref().clone(),
+            );
+            let api = CruiseClient::new(api_cfg)?;
+            let token = api.login().await?;
+            Ok(token.account_id)
+        }
+        CruiseLine::Princess => anyhow::bail!("Princess login is not enabled yet"),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_keyboard_uses_enabled_lines() {
+        let kb = line_keyboard(&[CruiseLine::Rcg]);
+        let json = serde_json::to_string(&kb).unwrap();
+        assert!(json.contains("line:rcg"));
+        assert!(!json.contains("line:princess"));
+        assert!(json.contains("Royal Caribbean & Celebrity"));
+    }
+}

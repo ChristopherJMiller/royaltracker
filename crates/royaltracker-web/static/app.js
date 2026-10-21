@@ -14,28 +14,9 @@ const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const initData = tg?.initData || "";
 
-const SHIP_NAMES = {
-  // Celebrity
-  AS: "Celebrity Ascent", AX: "Celebrity Apex", BE: "Celebrity Beyond",
-  EC: "Celebrity Eclipse", ED: "Celebrity Edge", EQ: "Celebrity Equinox",
-  IN: "Celebrity Infinity", MI: "Celebrity Millennium", RF: "Celebrity Reflection",
-  SI: "Celebrity Silhouette", SL: "Celebrity Solstice", SU: "Celebrity Summit",
-  XC: "Celebrity Xcel",
-  // Royal Caribbean
-  AD: "Adventure of the Seas", AL: "Allure of the Seas", AN: "Anthem of the Seas",
-  BR: "Brilliance of the Seas", EN: "Enchantment of the Seas", EP: "Explorer of the Seas",
-  FR: "Freedom of the Seas", GR: "Grandeur of the Seas", HM: "Harmony of the Seas",
-  IC: "Icon of the Seas", JW: "Jewel of the Seas",
-  LB: "Liberty of the Seas", MA: "Mariner of the Seas", NV: "Navigator of the Seas",
-  OA: "Oasis of the Seas", OD: "Odyssey of the Seas", OV: "Ovation of the Seas",
-  QN: "Quantum of the Seas", RD: "Radiance of the Seas", RH: "Rhapsody of the Seas",
-  SP: "Spectrum of the Seas", SR: "Star of the Seas", SY: "Symphony of the Seas",
-  UT: "Utopia of the Seas", VS: "Vision of the Seas", VY: "Voyager of the Seas",
-  WN: "Wonder of the Seas",
-};
-const BRAND_LABEL = { royal: "Royal Caribbean", celebrity: "Celebrity" };
+const BRAND_LABEL = { royal: "Royal Caribbean", celebrity: "Celebrity", princess: "Princess" };
 
-const shipName = (c) => SHIP_NAMES[c] || c;
+const shipName = (b) => b.ship_name || b.ship_code;
 const brandLabel = (b) => BRAND_LABEL[b] || b;
 // Deck number from a Royal/Celebrity cabin number (D+NNN encoding). Mirrors
 // `deck_of_cabin` in royaltracker-types. Returns null for GTY / non-cabins.
@@ -112,21 +93,23 @@ function useBackButton(handler, deps) {
 
 // ─── components ──────────────────────────────────────────────────────────────
 
-function Header({ user }) {
-  const sub = user
-    ? `${user.tg_first_name || user.tg_username || "you"} · ${user.rcg_username}`
-    : "Welcome — link your RCG account to begin.";
+function Header({ user, onAccounts }) {
+  const sub = user && (user.accounts || []).length > 0
+    ? `${user.tg_first_name || user.tg_username || "you"} · ${(user.accounts || []).map((a) => a.label).join(" + ")}`
+    : "Welcome — link a cruise account to begin.";
   return html`
     <header class="flex items-center justify-between">
       <div>
         <h1 class="text-xl font-semibold">🛳️ Cruise Tracker</h1>
         <p class="text-sm text-tg-hint">${sub}</p>
       </div>
+      ${user && onAccounts && html`<button onClick=${onAccounts} class="text-tg-link text-sm">Accounts</button>`}
     </header>`;
 }
 
-function RegisterForm({ onRegistered }) {
-  const [email, setEmail] = useState("");
+function AccountForm({ onLinked, lines }) {
+  const [line, setLine] = useState(lines[0][0]);
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState({ tone: "hint", text: "" });
   const [busy, setBusy] = useState(false);
@@ -136,12 +119,12 @@ function RegisterForm({ onRegistered }) {
     setBusy(true);
     setStatus({ tone: "hint", text: "Linking…" });
     try {
-      const r = await api("/api/register", { method: "POST", body: { email, password } });
+      const r = await api("/api/register", { method: "POST", body: { cruise_line: line, login, password } });
       if (r.login_ok) {
         tg?.HapticFeedback?.notificationOccurred?.("success");
         setStatus({ tone: "hint", text: `✅ Linked. ${r.bookings_discovered} booking(s) found.` });
         setPassword("");
-        await onRegistered();
+        await onLinked();
       } else {
         tg?.HapticFeedback?.notificationOccurred?.("warning");
         setStatus({ tone: "warn", text: r.message });
@@ -161,17 +144,24 @@ function RegisterForm({ onRegistered }) {
   return html`
     <section class="space-y-3">
       <div class="bg-tg-secondary rounded-lg p-4 space-y-3">
-        <h2 class="text-lg font-medium">Link your account</h2>
+        <h2 class="text-lg font-medium">Link a cruise account</h2>
         <p class="text-sm text-tg-hint">
-          Enter your Royal Caribbean or Celebrity Cruises login. Your password is
+          Choose a cruise line and enter your login. Your password is
           encrypted at rest and only used to fetch your personalized add-on prices
           on your behalf, once per day.
         </p>
         <form onSubmit=${submit} class="space-y-3" autocomplete="on">
           <label class="block">
-            <span class="text-sm">Email</span>
-            <input type="email" required autocomplete="username" value=${email}
-                   onInput=${(e) => setEmail(e.target.value)}
+            <span class="text-sm">Cruise line</span>
+            <select value=${line} onChange=${(e) => setLine(e.target.value)}
+                    class="mt-1 w-full bg-tg-bg text-tg-text rounded-lg px-3 py-2 border border-tg-hint/30">
+              ${lines.map(([k, label]) => html`<option key=${k} value=${k}>${label}</option>`)}
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-sm">Login${line === "rcg" ? " (email)" : ""}</span>
+            <input type=${line === "rcg" ? "email" : "text"} required autocomplete="username" value=${login}
+                   onInput=${(e) => setLogin(e.target.value)}
                    class="mt-1 w-full bg-tg-bg text-tg-text rounded-lg px-3 py-2 border border-tg-hint/30
                           focus:outline-none focus:ring-2 focus:ring-tg-button" />
           </label>
@@ -182,10 +172,10 @@ function RegisterForm({ onRegistered }) {
                    class="mt-1 w-full bg-tg-bg text-tg-text rounded-lg px-3 py-2 border border-tg-hint/30
                           focus:outline-none focus:ring-2 focus:ring-tg-button" />
           </label>
-          <p class="text-xs text-tg-hint">
+          ${line === "rcg" && html`<p class="text-xs text-tg-hint">
             One Royal Caribbean account works for both Royal and Celebrity — I'll find
             bookings across both brands automatically.
-          </p>
+          </p>`}
           <button type="submit" disabled=${busy}
                   class="w-full bg-tg-button text-tg-btext rounded-lg px-3 py-2.5 font-medium hover:opacity-90 transition disabled:opacity-50">
             ${busy ? "Linking…" : "Link account"}
@@ -193,6 +183,60 @@ function RegisterForm({ onRegistered }) {
           <p class="text-sm ${toneClass}">${status.text}</p>
         </form>
       </div>
+    </section>`;
+}
+
+// Part A exposes Royal Caribbean & Celebrity only; Task 12 adds Princess.
+const LINES = [["rcg", "Royal Caribbean & Celebrity"]];
+
+function AccountsView({ lines, onBack, onChanged }) {
+  const [accounts, setAccounts] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    try { setAccounts(await api("/api/accounts")); setErr(null); }
+    catch (e) { setErr(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useBackButton(onBack, []);
+
+  async function remove(a) {
+    if (!confirm(`Remove your ${a.label} account? Its bookings stop being tracked for you.`)) return;
+    try {
+      await api(`/api/accounts/${encodeURIComponent(a.cruise_line)}`, { method: "DELETE" });
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      await load();
+      await onChanged();
+    } catch (e) {
+      tg?.HapticFeedback?.notificationOccurred?.("error");
+      alert(`Failed: ${e.message}`);
+    }
+  }
+
+  return html`
+    <section class="space-y-3">
+      <button onClick=${onBack} class="text-tg-link text-sm">← Back</button>
+      <h2 class="text-sm uppercase tracking-wide text-tg-hint">Linked accounts</h2>
+      ${err && html`<p class="text-sm text-red-500">${err}</p>`}
+      ${accounts && accounts.length === 0 && html`<p class="text-sm text-tg-hint">No linked accounts.</p>`}
+      ${(accounts || []).map((a) => html`
+        <div key=${a.cruise_line} class="bg-tg-secondary rounded-lg p-4 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-medium">${a.label} · ${a.login}</div>
+            <div class="text-xs text-tg-hint break-words">
+              ${a.last_login_error ? `⚠ ${a.last_login_error}` : "✅"}
+            </div>
+          </div>
+          <button onClick=${() => remove(a)} class="text-red-500 text-sm">Remove</button>
+        </div>`)}
+      ${adding
+        ? html`<${AccountForm} lines=${lines}
+                 onLinked=${async () => { setAdding(false); await load(); await onChanged(); }} />`
+        : html`<button onClick=${() => setAdding(true)}
+                       class="w-full bg-tg-button text-tg-btext rounded-lg px-3 py-2.5 font-medium">
+                 Add account
+               </button>`}
     </section>`;
 }
 
@@ -266,7 +310,7 @@ function BookingsList({ bookings, onOpen, onRefresh }) {
                       class="w-full text-left bg-tg-secondary rounded-lg p-4 hover:bg-opacity-70 transition">
                 <div class="flex justify-between items-start gap-2">
                   <div>
-                    <div class="font-semibold">${shipName(b.ship_code)}</div>
+                    <div class="font-semibold">${shipName(b)}</div>
                     <div class="text-sm text-tg-hint">
                       ${[b.nights && `${b.nights} night${b.nights === 1 ? "" : "s"}`, fmtSailDate(b.sail_date)].filter(Boolean).join(" · ")}
                     </div>
@@ -301,7 +345,7 @@ function BookingHeader({ booking }) {
     <div class="bg-tg-secondary rounded-lg p-4 space-y-1">
       <div class="flex justify-between items-start">
         <div>
-          <div class="text-lg font-semibold">${shipName(booking.ship_code)}</div>
+          <div class="text-lg font-semibold">${shipName(booking)}</div>
           <div class="text-sm text-tg-hint">${[nights, fmtSailDate(booking.sail_date)].filter(Boolean).join(" · ")}</div>
           <div class="text-xs text-tg-hint mt-1">${daysUntil(booking.sail_date)}</div>
         </div>
@@ -450,8 +494,8 @@ function CatalogBrowser({ booking, catalog, onAdd, onRefreshCatalog }) {
 // cruisedeckplans uses the ship name hyphenated as its slug
 // (e.g. "Wonder-of-the-Seas", "Celebrity-Apex"). Only build links for ships we
 // can name; unknown codes get no (would-be-404) link.
-const cdpSlug = (shipCode) => {
-  const name = SHIP_NAMES[shipCode];
+const cdpSlug = (booking) => {
+  const name = booking.ship_name;
   return name ? name.replace(/\s+/g, "-") : null;
 };
 const openExternal = (url) => {
@@ -467,13 +511,13 @@ function LocationPanel({ booking }) {
   const [showPlan, setShowPlan] = useState(false);
   const [plan, setPlan] = useState(null);      // { image_url, source_url }
   const [planErr, setPlanErr] = useState(null);
-  if (!booking.deck) return null;
+  if (!booking.deck || booking.brand === "princess") return null;
 
   const tier = booking.height_tier ? ` · ${booking.height_tier}` : "";
   const notes = booking.location_notes || [];
   const cabin = booking.assigned_stateroom
     || (booking.stateroom && booking.stateroom !== "GTY" ? booking.stateroom : null);
-  const slug = cdpSlug(booking.ship_code);
+  const slug = cdpSlug(booking);
   const shipUrl = slug ? `https://www.cruisedeckplans.com/ships/${slug}` : null;
 
   async function togglePlan() {
@@ -481,15 +525,15 @@ function LocationPanel({ booking }) {
     setShowPlan(next);
     if (next && !plan && !planErr) {
       try {
-        setPlan(await api(`/api/deckplan?ship=${encodeURIComponent(booking.ship_code)}&deck=${booking.deck}`));
+        setPlan(await api(`/api/deckplan?ship=${encodeURIComponent(booking.ship_code)}&deck=${booking.deck}&brand=${encodeURIComponent(booking.brand)}`));
       } catch (e) {
         setPlanErr(e.message);
       }
     }
   }
 
-  const imgSearch = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shipName(booking.ship_code) + (cabin ? " cabin " + cabin : " deck " + booking.deck + " stateroom"))}`;
-  const vidSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(shipName(booking.ship_code) + " deck " + booking.deck + " stateroom tour")}`;
+  const imgSearch = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shipName(booking) + (cabin ? " cabin " + cabin : " deck " + booking.deck + " stateroom"))}`;
+  const vidSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(shipName(booking) + " deck " + booking.deck + " stateroom tour")}`;
 
   return html`
     <div class="bg-tg-secondary rounded-lg p-4 space-y-3">
@@ -518,7 +562,7 @@ function LocationPanel({ booking }) {
                   : html`
                     <div class="rounded-lg overflow-auto max-h-[28rem] bg-white border border-tg-hint/20">
                       <img src=${plan.image_url} loading="lazy"
-                           alt=${`${shipName(booking.ship_code)} deck ${booking.deck}`}
+                           alt=${`${shipName(booking)} deck ${booking.deck}`}
                            class="w-full h-auto" />
                     </div>
                     <p class="text-[10px] text-tg-hint">
@@ -528,7 +572,7 @@ function LocationPanel({ booking }) {
             </div>`}
           ${shipUrl && html`
             <button onClick=${() => openExternal(shipUrl)} class="text-tg-link text-xs">
-              All ${shipName(booking.ship_code)} deck plans →
+              All ${shipName(booking)} deck plans →
             </button>`}
         </div>`}
       ${slug && html`
@@ -824,7 +868,7 @@ function App() {
     try {
       const me = await api("/api/me");
       setUser(me);
-      return true;
+      return (me.accounts || []).length > 0;
     } catch (e) {
       if (/^403/.test(e.message)) { setUser(null); return false; }
       console.error(e);
@@ -863,7 +907,9 @@ function App() {
   if (view === "loading") {
     body = html`<p class="text-sm text-tg-hint">loading…</p>`;
   } else if (view === "register") {
-    body = html`<${RegisterForm} onRegistered=${bootstrap} />`;
+    body = html`<${AccountForm} lines=${LINES} onLinked=${bootstrap} />`;
+  } else if (view === "accounts") {
+    body = html`<${AccountsView} lines=${LINES} onBack=${() => setView("bookings")} onChanged=${async () => { await loadMe(); await loadBookings(); }} />`;
   } else if (view === "bookings") {
     body = html`<${BookingsList} bookings=${bookings}
                                   onOpen=${openBooking}
@@ -890,7 +936,7 @@ function App() {
 
   return html`
     <div class="max-w-2xl mx-auto p-4 space-y-4">
-      <${Header} user=${user} />
+      <${Header} user=${user} onAccounts=${view === "loading" || view === "accounts" ? null : () => setView("accounts")} />
       ${body}
     </div>`;
 }
