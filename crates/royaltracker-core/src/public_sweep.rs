@@ -235,6 +235,7 @@ async fn sweep_one(
             msrp_label: p.base_label.as_deref(),
             itinerary: Some(&itinerary),
             manage_url: None,
+            currency: tp.currency.as_deref(),
         };
         match notifier.notify_price_drop(&target, &alert).await {
             Ok(()) => {

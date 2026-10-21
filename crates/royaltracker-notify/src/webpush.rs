@@ -51,9 +51,9 @@ impl WebPushChannel {
         let ua_auth = *Auth::from_slice(&auth);
 
         let body = format!(
-            "${:.2} — was ${:.2} ({:+.1}%){}",
-            alert.diff.new_price,
-            alert.diff.old_price,
+            "{} — was {} ({:+.1}%){}",
+            royaltracker_types::format_money(alert.diff.new_price, alert.currency),
+            royaltracker_types::format_money(alert.diff.old_price, alert.currency),
             alert.diff.delta_pct,
             alert.itinerary.map(|i| format!("\n{i}")).unwrap_or_default()
         );

@@ -1,4 +1,4 @@
-use royaltracker_types::Diff;
+use royaltracker_types::{format_money, Diff};
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, ParseMode};
 
@@ -26,14 +26,17 @@ pub struct DiffContext<'a> {
     /// "Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434". Rendered as a
     /// subtitle so alerts across multiple bookings are distinguishable at a glance.
     pub itinerary: Option<&'a str>,
+    /// ISO currency code for prices; `None` renders as USD ("$").
+    pub currency: Option<&'a str>,
 }
 
-pub async fn send_diff(bot: &Bot, chat_id: i64, ctx: &DiffContext<'_>) -> Result<(), TelegramError> {
+/// Build the MarkdownV2 message text for a price drop.
+pub fn render_diff(ctx: &DiffContext<'_>) -> String {
     // Drops only (caller already filters); keep the down arrow.
     let arrow = "🔻";
     let label = escape_md_v2(ctx.label);
-    let new_p = format!("${:.2}", ctx.diff.new_price);
-    let old_p = format!("${:.2}", ctx.diff.old_price);
+    let new_p = format_money(ctx.diff.new_price, ctx.currency);
+    let old_p = format_money(ctx.diff.old_price, ctx.currency);
     let pct = format!("{:+.1}%", ctx.diff.delta_pct);
     let mut text = format!("{arrow} *{label}*");
     if let Some(itin) = ctx.itinerary {
@@ -61,6 +64,11 @@ pub async fn send_diff(bot: &Bot, chat_id: i64, ctx: &DiffContext<'_>) -> Result
         }
     }
 
+    text
+}
+
+pub async fn send_diff(bot: &Bot, chat_id: i64, ctx: &DiffContext<'_>) -> Result<(), TelegramError> {
+    let text = render_diff(ctx);
     bot.send_message(ChatId(chat_id), text)
         .parse_mode(ParseMode::MarkdownV2)
         .await?;
@@ -104,6 +112,24 @@ fn escape_md_v2(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ctx<'a>(label: &'a str, diff: &'a Diff) -> DiffContext<'a> {
+        DiffContext { label, diff, msrp_label: None, itinerary: None, currency: None }
+    }
+
+    #[test]
+    fn aud_drop_renders_currency_code() {
+        let d = Diff::from_prices(1, 30.0, 24.94);
+        let text = render_diff(&DiffContext { currency: Some("AUD"), ..ctx("Classic Soda", &d) });
+        assert!(text.contains("AUD 24\\.94"), "{text}");
+        assert!(!text.contains("$24"));
+    }
+
+    #[test]
+    fn usd_default_unchanged() {
+        let d = Diff::from_prices(1, 30.0, 24.94);
+        assert!(render_diff(&ctx("X", &d)).contains("$24\\.94"));
+    }
 
     #[test]
     fn escape_basics() {

@@ -1,7 +1,9 @@
 //! Princess account discovery: one login, one booking context, persisted.
 
 use crate::bookings::DiscoveryReport;
-use royaltracker_api::princess::{PrincessAccountClient, PrincessBookingContext};
+use royaltracker_api::princess::{PrincessAccountClient, PrincessBookingContext, PrincessGuestClient};
+use royaltracker_api::{ApiError, PublicProduct};
+use std::collections::HashMap;
 use royaltracker_storage::{PriceRepo, SailingKey};
 use royaltracker_types::{Booking, Brand, CruiseAccount, User};
 use tracing::warn;
@@ -77,11 +79,77 @@ pub(crate) async fn persist_context(
     Ok(report)
 }
 
+
+/// Merge excursions and extras into one map keyed by product code. Excursions
+/// win on a (theoretical) code collision.
+pub fn merge_products(
+    excursions: Vec<PublicProduct>,
+    extras: Vec<PublicProduct>,
+) -> HashMap<String, PublicProduct> {
+    let mut m: HashMap<String, PublicProduct> = HashMap::new();
+    for p in extras {
+        m.insert(p.product_code.clone(), p);
+    }
+    for p in excursions {
+        m.insert(p.product_code.clone(), p);
+    }
+    m
+}
+
+/// Per-run Princess price cache. Each excursions fetch (per voyage+currency)
+/// and each extras fetch (per currency) happens at most once.
+#[derive(Default)]
+pub struct PrincessPriceCache {
+    excursions: HashMap<(String, String), Vec<PublicProduct>>,
+    extras: HashMap<String, Vec<PublicProduct>>,
+}
+
+impl PrincessPriceCache {
+    pub async fn products(
+        &mut self,
+        client: &PrincessGuestClient,
+        voyage_code: &str,
+        currency: &str,
+    ) -> Result<HashMap<String, PublicProduct>, ApiError> {
+        let ek = (voyage_code.to_string(), currency.to_string());
+        if !self.excursions.contains_key(&ek) {
+            let v = client.fetch_excursions(voyage_code, currency).await?;
+            self.excursions.insert(ek.clone(), v);
+        }
+        if !self.extras.contains_key(currency) {
+            let v = client.fetch_extras(currency).await?;
+            self.extras.insert(currency.to_string(), v);
+        }
+        Ok(merge_products(self.excursions[&ek].clone(), self.extras[currency].clone()))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bookings::login_outcome;
     use chrono::NaiveDate;
+
+    fn prod(code: &str) -> PublicProduct {
+        PublicProduct {
+            category_id: "c".into(),
+            category_name: "C".into(),
+            product_code: code.into(),
+            title: None,
+            promo_cents: Some(1000),
+            base_cents: None,
+            promo_label: None,
+            base_label: None,
+            currency: Some("USD".into()),
+            unit_label: None,
+            child_cents: None,
+        }
+    }
+
+    #[test]
+    fn merge_prefers_excursion_and_extras_by_code() {
+        let m = merge_products(vec![prod("SJD-100")], vec![prod("2323")]);
+        assert!(m.contains_key("SJD-100") && m.contains_key("2323"));
+    }
 
     fn ctx() -> PrincessBookingContext {
         PrincessBookingContext {
