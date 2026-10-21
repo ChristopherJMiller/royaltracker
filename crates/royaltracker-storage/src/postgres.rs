@@ -156,10 +156,20 @@ impl PriceRepo for PostgresRepo {
     }
 
     async fn deactivate_user(&self, chat_id: i64) -> Result<(), StorageError> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE users SET active = FALSE, updated_at = now() WHERE telegram_chat_id = $1")
             .bind(chat_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        // Unregistering deletes the stored cruise logins: linking a line later
+        // must not silently resume scraping with the old credentials.
+        sqlx::query(
+            "DELETE FROM cruise_accounts WHERE user_id IN (SELECT id FROM users WHERE telegram_chat_id = $1)",
+        )
+        .bind(chat_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 

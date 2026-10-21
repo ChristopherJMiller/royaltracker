@@ -28,7 +28,7 @@ enum Command {
     Register,
     #[command(description = "list or remove your linked cruise accounts")]
     Accounts,
-    #[command(description = "remove your account (deletes encrypted credentials)")]
+    #[command(description = "remove your account and delete your stored cruise logins")]
     Unregister,
     #[command(description = "test your stored credentials by logging in")]
     Test,
@@ -296,7 +296,8 @@ async fn on_command(
             } else {
                 bot.send_message(
                     msg.chat.id,
-                    "Your account is deactivated. Run /register to set it up again.",
+                    "Your account is deactivated and your stored cruise logins were deleted. \
+                     Run /register to set it up again.",
                 )
                 .await?;
             }

@@ -122,6 +122,30 @@ async fn inactive_user_accounts_not_listed() {
 }
 
 #[tokio::test]
+async fn deactivate_user_deletes_all_accounts() {
+    let r = repo().await;
+    let uid = user(&r, 8).await;
+    let other = user(&r, 9).await;
+    r.upsert_cruise_account(&acct(uid, CruiseLine::Rcg, "a@x.com", b"c")).await.unwrap();
+    r.upsert_cruise_account(&acct(uid, CruiseLine::Princess, "p@x.com", b"c")).await.unwrap();
+    r.upsert_cruise_account(&acct(other, CruiseLine::Rcg, "o@x.com", b"c")).await.unwrap();
+    assert_eq!(r.list_cruise_accounts(uid).await.unwrap().len(), 2);
+
+    r.deactivate_user(8).await.unwrap();
+    assert!(r.list_cruise_accounts(uid).await.unwrap().is_empty());
+
+    // Re-registering (any line) must not resurrect the deleted logins.
+    let again = user(&r, 8).await;
+    assert_eq!(again, uid);
+    assert!(r.list_cruise_accounts(uid).await.unwrap().is_empty());
+    let active = r.list_active_cruise_accounts().await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].user.id, other);
+    // Other users are untouched.
+    assert_eq!(r.list_cruise_accounts(other).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn cross_line_booking_never_overwrites() {
     let r = repo().await;
     r.upsert_booking(&booking("1234567", Brand::Royal, None, None)).await.unwrap();

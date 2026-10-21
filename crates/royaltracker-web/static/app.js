@@ -226,7 +226,7 @@ function AccountsView({ lines, onBack, onChanged }) {
           <div class="min-w-0">
             <div class="font-medium">${a.label} · ${a.login}</div>
             <div class="text-xs text-tg-hint break-words">
-              ${a.last_login_error ? `⚠ ${a.last_login_error}` : "✅"}
+              ${!a.active ? "⏸ inactive" : a.last_login_error ? `⚠ ${a.last_login_error}` : "✅"}
             </div>
           </div>
           <button onClick=${() => remove(a)} class="text-red-500 text-sm">Remove</button>
