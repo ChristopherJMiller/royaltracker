@@ -67,8 +67,8 @@ fn map_target(kind: PublicChannelKind, endpoint: &str, p256dh: Option<&str>, aut
     }
 }
 
-fn sailing_label(ship_code: &str, sail_date: NaiveDate) -> String {
-    let ship = royaltracker_types::ship_name(ship_code).unwrap_or(ship_code);
+fn sailing_label(brand: Brand, ship_code: &str, sail_date: NaiveDate) -> String {
+    let ship = royaltracker_types::ship_name(brand, ship_code).unwrap_or(ship_code);
     format!("{ship} · {}", sail_date.format("%b %-d, %Y"))
 }
 
@@ -221,7 +221,7 @@ async fn sweep_one(
         .title
         .clone()
         .unwrap_or_else(|| tp.product_code.clone());
-    let itinerary = sailing_label(ship, sail);
+    let itinerary = sailing_label(tp.brand, ship, sail);
 
     let mut any_sent = false;
     for sub in &subs {

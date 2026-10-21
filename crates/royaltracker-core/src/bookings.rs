@@ -1,28 +1,64 @@
 use chrono::NaiveDate;
 use royaltracker_api::{CruiseClient, CruiseClientConfig};
-use royaltracker_storage::PriceRepo;
+use royaltracker_storage::{PriceRepo, StorageError};
 use royaltracker_notify::{NotifyTarget, Notifier, TextAlert};
-use royaltracker_types::{Booking, Brand, User};
+use royaltracker_types::{Booking, Brand, CruiseAccount, CruiseLine, User};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-/// Discover all bookings across both RCG brands and persist them.
-///
-/// Thin wrapper around [`discover_with_clients`] for callers that don't need
-/// to reuse the authenticated clients (e.g. the web `register`/`refresh`
-/// handlers).
-pub async fn discover_and_persist_bookings(
-    rcg_username: &str,
-    rcg_password: &str,
-    basic_auth_b64: &str,
-    repo: &(dyn PriceRepo),
+/// Result of discovering one cruise account's bookings.
+pub struct AccountDiscovery {
+    pub report: DiscoveryReport,
+    /// Authenticated RCG clients (empty for other lines).
+    pub rcg_clients: HashMap<Brand, CruiseClient>,
+}
+
+/// Outcome recorded against an account: `None` when at least one login
+/// succeeded, otherwise the joined errors.
+pub(crate) fn login_outcome(report: &DiscoveryReport) -> Option<String> {
+    if report.logins_ok > 0 {
+        None
+    } else if report.errors.is_empty() {
+        Some("no login succeeded".to_string())
+    } else {
+        Some(report.errors.join("; "))
+    }
+}
+
+/// Discover one cruise account's bookings, persist them, and record the login
+/// outcome on the account.
+pub async fn discover_account(
+    repo: &dyn PriceRepo,
+    rcg_basic_auth_b64: &str,
     user: &User,
-) -> anyhow::Result<DiscoveryReport> {
-    // No bot here: web-initiated discovery (register/refresh) means the user is
-    // already looking at the UI, so cabin-change pushes would be redundant.
-    let (report, _clients) =
-        discover_with_clients(rcg_username, rcg_password, basic_auth_b64, repo, user, None).await?;
-    Ok(report)
+    account: &CruiseAccount,
+    password: &str,
+    notifier: Option<&dyn Notifier>,
+) -> anyhow::Result<AccountDiscovery> {
+    let result: anyhow::Result<AccountDiscovery> = match account.line {
+        CruiseLine::Rcg => {
+            discover_with_clients(
+                account.id,
+                &account.login,
+                password,
+                rcg_basic_auth_b64,
+                repo,
+                user,
+                notifier,
+            )
+            .await
+            .map(|(report, rcg_clients)| AccountDiscovery { report, rcg_clients })
+        }
+        CruiseLine::Princess => Err(anyhow::anyhow!("Princess support is not enabled yet")),
+    };
+    let outcome = match &result {
+        Ok(d) => login_outcome(&d.report),
+        Err(e) => Some(e.to_string()),
+    };
+    if let Err(e) = repo.record_login_outcome(account.id, outcome.as_deref()).await {
+        warn!(account = account.id, error = %e, "record_login_outcome failed");
+    }
+    result
 }
 
 /// Discover all bookings across both RCG brands and persist them, returning
@@ -37,6 +73,7 @@ pub async fn discover_and_persist_bookings(
 ///
 /// Cost: 2 logins + 2 bookings calls per invocation (~4 RCG requests).
 pub async fn discover_with_clients(
+    account_id: i64,
     rcg_username: &str,
     rcg_password: &str,
     basic_auth_b64: &str,
@@ -159,10 +196,16 @@ pub async fn discover_with_clients(
                 package_code: summary.package_code,
                 stateroom: displayed_stateroom,
                 assigned_stateroom,
+                voyage_code: None,
+                currency: None,
             };
 
             if let Err(e) = repo.upsert_booking(&booking).await {
-                warn!(error = %e, "upsert_booking failed");
+                if matches!(e, StorageError::CrossLineConflict { .. }) {
+                    warn!(reservation = %reservation_id, "booking belongs to another cruise line; skipping");
+                } else {
+                    warn!(error = %e, "upsert_booking failed");
+                }
                 report.errors.push(format!("upsert: {e}"));
                 continue;
             }
@@ -187,7 +230,7 @@ pub async fn discover_with_clients(
                         let deck = royaltracker_types::deck_of_cabin(&deck_cabin)
                             .map(|d| format!(" · deck {d}"))
                             .unwrap_or_default();
-                        let ship = royaltracker_types::ship_name(&booking.ship_code)
+                        let ship = royaltracker_types::ship_name(booking.brand, &booking.ship_code)
                             .unwrap_or(booking.ship_code.as_str());
                         let text = format!(
                             "{headline}\n{ship} · {}\n{body}{deck}",
@@ -224,7 +267,7 @@ pub async fn discover_with_clients(
     }
 
     info!(
-        user = %user.rcg_username,
+        account = account_id,
         persisted = report.persisted,
         logins_ok = report.logins_ok,
         errors = report.errors.len(),
@@ -273,4 +316,25 @@ pub struct DiscoveryReport {
     pub persisted: usize,
     pub logins_ok: usize,
     pub errors: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_outcome_ok_when_any_login_succeeded() {
+        let r = DiscoveryReport { persisted: 1, logins_ok: 1, errors: vec!["celebrity: x".into()] };
+        assert_eq!(login_outcome(&r), None);
+    }
+
+    #[test]
+    fn login_outcome_err_when_no_login() {
+        let r = DiscoveryReport {
+            persisted: 0,
+            logins_ok: 0,
+            errors: vec!["royal: 401".into(), "celebrity: 401".into()],
+        };
+        assert_eq!(login_outcome(&r).as_deref(), Some("royal: 401; celebrity: 401"));
+    }
 }
