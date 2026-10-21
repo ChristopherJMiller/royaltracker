@@ -141,6 +141,8 @@ pub struct PublicState {
     pub public_client: Arc<PublicClient>,
     /// Princess guest client (schedule source).
     pub princess: Arc<PrincessGuestClient>,
+    /// Fleet-wide Princess extras, shared with the authed web tier (6 h TTL).
+    pub princess_extras: Arc<royaltracker_core::PrincessExtrasCache>,
     /// Whole Princess schedule, refreshed at most every 24 h (30 min back-off
     /// after a failed refresh).
     pub schedule: ScheduleCache,
@@ -469,7 +471,7 @@ async fn prices(
             let currency = resolve_princess_voyage(&s, &q.ship, date, v).await?.currency;
             let mut cache = royaltracker_core::PrincessPriceCache::default();
             let r = cache
-                .products(&s.princess, v, &currency)
+                .products_shared(&s.princess, &s.princess_extras, v, &currency)
                 .await
                 .map(royaltracker_core::princess_fetch_outcome);
             (r, Some(currency))

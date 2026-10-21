@@ -128,12 +128,15 @@ async fn main() -> Result<()> {
         ))
         .context("princess guest client")?,
     );
+    // One shared extras cache for the authed catalog refresh and the public tier.
+    let princess_extras = Arc::new(royaltracker_core::PrincessExtrasCache::default());
     let web_state = royaltracker_web::AppState {
         repo: repo.clone(),
         cipher: cipher.clone(),
         bot_token: Arc::new(cfg.telegram.bot_token.clone()),
         rcg_basic_auth_b64: Arc::new(cfg.rcg_basic_auth_b64.clone()),
         princess: princess.clone(),
+        princess_extras: princess_extras.clone(),
     };
     let web_addr: std::net::SocketAddr = cfg
         .web
@@ -206,6 +209,7 @@ async fn main() -> Result<()> {
                 repo: public_repo,
                 public_client: Arc::new(public_client),
                 princess: princess.clone(),
+                princess_extras: princess_extras.clone(),
                 schedule: Default::default(),
                 identity,
             };

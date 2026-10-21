@@ -21,6 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         repo: Arc::new(repo),
         public_client: Arc::new(client),
         princess: Arc::new(PrincessGuestClient::new(PacingConfig::default())?),
+        princess_extras: Default::default(),
         schedule: Default::default(),
         identity: None,
     };
