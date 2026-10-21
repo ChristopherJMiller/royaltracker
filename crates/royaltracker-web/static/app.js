@@ -35,6 +35,10 @@ const daysUntil = (iso) => {
   if (days === 1) return "tomorrow";
   return `${days} days away`;
 };
+// Mirrors `format_money` in royaltracker-types: no currency or USD → "$x.xx",
+// anything else → "CUR x.xx".
+const moneyPrefix = (cur) => (!cur || cur === "USD" ? "$" : `${cur} `);
+const fmtMoney = (v, cur) => `${moneyPrefix(cur)}${v.toFixed(2)}`;
 const priceText = (r) =>
   r.price_label
     ? `${r.price_label}${r.unit_label ? ` · ${r.unit_label}` : ""}`
@@ -359,9 +363,9 @@ function BookingHeader({ booking }) {
     </div>`;
 }
 
-function alertSummary(w) {
+function alertSummary(w, cur) {
   if (w.alert_mode === "below_threshold" && w.alert_threshold != null) {
-    return `🔔 below $${w.alert_threshold.toFixed(2)}`;
+    return `🔔 below ${fmtMoney(w.alert_threshold, cur)}`;
   }
   return "🔔 any drop";
 }
@@ -380,11 +384,11 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
             <div class="flex justify-between">
               <span class="font-medium">${w.label || w.product_code}</span>
               <span class="text-tg-hint text-sm">
-                ${w.latest_price != null ? `$${w.latest_price.toFixed(2)}` : "—"}
+                ${w.latest_price != null ? fmtMoney(w.latest_price, booking.currency) : "—"}
               </span>
             </div>
             <div class="text-xs text-tg-hint mt-1">
-              ${alertSummary(w)} · ${stale ? html`<span class="text-yellow-500">⚠ ${stale}</span> · ` : ""}tap for chart →
+              ${alertSummary(w, booking.currency)} · ${stale ? html`<span class="text-yellow-500">⚠ ${stale}</span> · ` : ""}tap for chart →
             </div>
           </button>
           <button onClick=${() => onRemove(w)}
@@ -639,7 +643,7 @@ function BookingView({ booking, watched, catalog, onBack, onOpenWatched, refresh
     </section>`;
 }
 
-function AlertEditor({ watched, onSaved }) {
+function AlertEditor({ watched, currency, onSaved }) {
   const [mode, setMode] = useState(watched.alert_mode || "any_drop");
   const [threshold, setThreshold] = useState(
     watched.alert_threshold != null ? String(watched.alert_threshold) : "",
@@ -688,7 +692,7 @@ function AlertEditor({ watched, onSaved }) {
                onChange=${() => setMode("below_threshold")} />
         Only when below
         <span class="inline-flex items-center gap-1">
-          <span>$</span>
+          <span>${moneyPrefix(currency).trim()}</span>
           <input type="number" step="0.01" min="0"
                  disabled=${mode !== "below_threshold"}
                  value=${threshold}
@@ -710,7 +714,7 @@ function AlertEditor({ watched, onSaved }) {
     </div>`;
 }
 
-function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
+function ProductDetail({ watched, currency, onBack, onRemoved, refreshWatched }) {
   const [points, setPoints] = useState(null);
   const [error, setError] = useState(null);
   const canvasRef = useRef(null);
@@ -795,7 +799,7 @@ function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
                 const delta = prev != null && v != null ? v - prev : null;
                 const sign = delta == null ? "" : (delta > 0 ? " ▲" : (delta < 0 ? " ▼" : ""));
                 const dtxt = delta == null ? "" : ` (${delta > 0 ? "+" : ""}${delta.toFixed(2)})`;
-                return `$${v.toFixed(2)}${sign}${dtxt}`;
+                return `${fmtMoney(v, currency)}${sign}${dtxt}`;
               },
             },
           },
@@ -816,7 +820,7 @@ function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
             beginAtZero: false,
             ticks: {
               color: hint,
-              callback: (v) => `$${v}`,
+              callback: (v) => `${moneyPrefix(currency)}${v}`,
             },
             grid: { color: hint + "26" }, // ~15% alpha
           },
@@ -824,7 +828,7 @@ function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
       },
     });
     return () => chartRef.current?.destroy();
-  }, [points]);
+  }, [points, currency]);
 
   let meta = "loading…";
   if (error) meta = `error: ${error}`;
@@ -846,7 +850,7 @@ function ProductDetail({ watched, onBack, onRemoved, refreshWatched }) {
       <div class="bg-tg-secondary rounded-lg p-3">
         <canvas ref=${canvasRef} height="220"></canvas>
       </div>
-      <${AlertEditor} watched=${watched} onSaved=${refreshWatched} />
+      <${AlertEditor} watched=${watched} currency=${currency} onSaved=${refreshWatched} />
       <button onClick=${stopTracking}
               class="w-full bg-tg-secondary text-red-500 rounded-lg px-3 py-2 font-medium hover:opacity-80 transition">
         🗑️ Stop tracking
@@ -936,7 +940,8 @@ function App() {
     // Re-resolve from `watched` so we pick up the latest alert config/price
     // after refreshWatched() runs in the detail view.
     const current = watched.find((w) => w.id === selectedWatched.id) || selectedWatched;
-    body = html`<${ProductDetail} watched=${current}
+    const currency = bookings.find((b) => b.reservation_id === current.reservation_id)?.currency;
+    body = html`<${ProductDetail} watched=${current} currency=${currency}
                                    onBack=${() => setView("booking")}
                                    onRemoved=${() => setView("booking")}
                                    refreshWatched=${loadWatched} />`;

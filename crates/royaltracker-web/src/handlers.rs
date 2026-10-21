@@ -326,6 +326,8 @@ pub struct BookingDto {
     pub brand_label: String,
     pub ship_name: Option<String>,
     pub voyage_code: Option<String>,
+    /// ISO currency of the booking's prices; `None` = USD.
+    pub currency: Option<String>,
     pub ship_code: String,
     pub sail_date: chrono::NaiveDate,
     pub nights: Option<i32>,
@@ -401,6 +403,7 @@ pub async fn list_bookings(
             brand_label: b.brand.label().to_string(),
             ship_name: royaltracker_types::ship_name(b.brand, &b.ship_code).map(str::to_string),
             voyage_code: b.voyage_code,
+            currency: b.currency,
             ship_code: b.ship_code,
             sail_date: b.sail_date,
             nights: b.nights,
