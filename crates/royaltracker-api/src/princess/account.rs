@@ -32,8 +32,14 @@ pub struct PrincessBookingContext {
 }
 
 /// `"Basic " + base64(urlencode(login) + ":" + urlencode(password))`.
+/// Spaces are encoded as `%20` to match the site's `encodeURIComponent` (form
+/// encoding would emit `+`; a literal `+` is already `%2B`).
 pub fn basic_auth_value(login: &str, password: &str) -> String {
-    let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+    let enc = |s: &str| {
+        url::form_urlencoded::byte_serialize(s.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20")
+    };
     let raw = format!("{}:{}", enc(login), enc(password));
     format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(raw))
 }
@@ -44,7 +50,11 @@ pub fn parse_departure(s: &str) -> Option<NaiveDate> {
 }
 
 /// Extract the current booking from an `sfccKeepAlive` response. `None` when
-/// `data.bookingInfo` is absent or lacks `bookingId`.
+/// `data.bookingInfo` is absent, or any required field (`bookingId`,
+/// `shipCode`, `voyageId`, `paxId`, `departureDate`, `bookingCurrency`) is
+/// missing or empty, or `departureDate` doesn't parse. `durationDays` is
+/// optional. When `bookingId` is present but parsing fails, the failing field
+/// NAME (never its value) is logged.
 pub fn parse_keep_alive(v: &serde_json::Value) -> Option<PrincessBookingContext> {
     let bi = v.get("data")?.get("bookingInfo")?;
     let text = |k: &str| match bi.get(k)? {
@@ -53,16 +63,79 @@ pub fn parse_keep_alive(v: &serde_json::Value) -> Option<PrincessBookingContext>
         _ => None,
     };
     let booking_id = text("bookingId")?;
+    let required = |k: &'static str| {
+        let r = text(k);
+        if r.is_none() {
+            tracing::warn!(field = k, "princess keepalive bookingInfo field missing or empty");
+        }
+        r
+    };
+    let ship_code = required("shipCode")?;
+    let voyage_code = required("voyageId")?;
+    let pax_id = required("paxId")?;
+    let departure = required("departureDate")?;
+    let Some(sail_date) = parse_departure(&departure) else {
+        tracing::warn!(field = "departureDate", "princess keepalive bookingInfo field unparseable");
+        return None;
+    };
+    let currency = required("bookingCurrency")?;
     let nights = text("durationDays").and_then(|d| d.parse::<i32>().ok());
     Some(PrincessBookingContext {
         booking_id,
-        ship_code: text("shipCode")?,
-        voyage_code: text("voyageId")?,
-        pax_id: text("paxId")?,
+        ship_code,
+        voyage_code,
+        pax_id,
         nights,
-        sail_date: parse_departure(&text("departureDate")?)?,
-        currency: text("bookingCurrency")?,
+        sail_date,
+        currency,
     })
+}
+
+/// Require a JSON body whose top-level `status` is `"success"`; otherwise
+/// `ApiError::Status` with `http_status` and the body truncated to 200 chars.
+fn require_success(http_status: u16, body: &str) -> Result<serde_json::Value, ApiError> {
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(v) if v.get("status").and_then(|s| s.as_str()) == Some("success") => Ok(v),
+        _ => Err(ApiError::Status {
+            status: http_status,
+            body: error_snippet(body),
+        }),
+    }
+}
+
+/// Error-message body: at most 200 chars, with any JSON key whose name
+/// contains "token" removed first (e.g. keepalive's `tokenObj.appToken`), so
+/// a session token never reaches stored errors or logs.
+fn error_snippet(body: &str) -> String {
+    let cleaned = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(mut v) => {
+            if strip_token_keys(&mut v) {
+                v.to_string()
+            } else {
+                body.to_string()
+            }
+        }
+        Err(_) => body.to_string(),
+    };
+    cleaned.chars().take(ERROR_BODY_MAX).collect()
+}
+
+/// Recursively drops keys containing "token" (case-insensitive). Returns
+/// whether anything was removed.
+fn strip_token_keys(v: &mut serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Object(m) => {
+            let before = m.len();
+            m.retain(|k, _| !k.to_ascii_lowercase().contains("token"));
+            let mut removed = m.len() != before;
+            for x in m.values_mut() {
+                removed |= strip_token_keys(x);
+            }
+            removed
+        }
+        serde_json::Value::Array(a) => a.iter_mut().fold(false, |acc, x| strip_token_keys(x) | acc),
+        _ => false,
+    }
 }
 
 pub struct PrincessAccountClient {
@@ -121,7 +194,7 @@ impl PrincessAccountClient {
             .header("Referer", "https://www.princess.com/")
             .send()
             .await?;
-        check_ok(resp).await?;
+        check_success(resp).await?;
 
         // Loading the booking site's landing page (302 -> summary.page) is what
         // sets the session's "current booking"; without it sfccKeepAlive has no
@@ -148,10 +221,16 @@ impl PrincessAccountClient {
             .header("Origin", ORIGIN)
             .send()
             .await?;
-        let body = check_ok(resp).await?;
-        let v: serde_json::Value = serde_json::from_str(&body)?;
+        let v = check_success(resp).await?;
         Ok(parse_keep_alive(&v))
     }
+}
+
+/// [`check_ok`], then require a JSON body with top-level `"status": "success"`.
+async fn check_success(resp: wreq::Response) -> Result<serde_json::Value, ApiError> {
+    let status = resp.status().as_u16();
+    let body = check_ok(resp).await?;
+    require_success(status, &body)
 }
 
 /// Return the body of a 2xx response; otherwise `ApiError::Status` with the
@@ -164,7 +243,7 @@ async fn check_ok(resp: wreq::Response) -> Result<String, ApiError> {
     } else {
         Err(ApiError::Status {
             status: status.as_u16(),
-            body: body.chars().take(ERROR_BODY_MAX).collect(),
+            body: error_snippet(&body),
         })
     }
 }
@@ -180,10 +259,48 @@ fn uuid4() -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn uuid4_shape() {
         let u = super::uuid4();
         assert_eq!(u.len(), 36);
         assert_eq!(&u[14..15], "4");
+    }
+
+    #[test]
+    fn require_success_accepts_only_status_success() {
+        let v = require_success(200, r#"{"status":"success","data":{}}"#).unwrap();
+        assert!(v.get("data").is_some());
+
+        for body in [r#"{"status":"failure","msg":"x"}"#, r#"{"data":{}}"#, "<html>login</html>", ""] {
+            match require_success(200, body) {
+                Err(ApiError::Status { status, body: b }) => {
+                    assert_eq!(status, 200);
+                    assert_eq!(b, body);
+                }
+                other => panic!("expected Status error for {body:?}, got {other:?}"),
+            }
+        }
+
+        let long = format!(r#"{{"status":"error","pad":"{}"}}"#, "x".repeat(500));
+        match require_success(200, &long) {
+            Err(ApiError::Status { body, .. }) => assert_eq!(body.chars().count(), ERROR_BODY_MAX),
+            other => panic!("expected Status error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_snippet_never_carries_tokens() {
+        let body = r#"{"data":{"httpcode":401,"tokenObj":{"appToken":"SECRET","expiresIn":30},"msg":"no session"},"status":"error"}"#;
+        match require_success(200, body) {
+            Err(ApiError::Status { body: b, .. }) => {
+                assert!(!b.contains("SECRET") && !b.contains("tokenObj"), "{b}");
+                assert!(b.contains("no session") && b.contains("\"status\":\"error\""), "{b}");
+            }
+            other => panic!("expected Status error, got {other:?}"),
+        }
+        assert!(!error_snippet(r#"[{"Token":"SECRET"}]"#).contains("SECRET"));
+        assert_eq!(error_snippet("<html>x</html>"), "<html>x</html>");
     }
 }
