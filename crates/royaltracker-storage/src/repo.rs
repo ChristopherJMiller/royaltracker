@@ -72,6 +72,8 @@ pub trait PriceRepo: Send + Sync + 'static {
     // --- users ---
     async fn upsert_user(&self, u: &NewUser<'_>) -> Result<i64, StorageError>;
     async fn get_user_by_chat_id(&self, chat_id: i64) -> Result<Option<User>, StorageError>;
+    /// Marks the user inactive and deletes all of their `cruise_accounts`
+    /// rows (stored logins), in one transaction.
     async fn deactivate_user(&self, chat_id: i64) -> Result<(), StorageError>;
 
     // --- cruise accounts ---
