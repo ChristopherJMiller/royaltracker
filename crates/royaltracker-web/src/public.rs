@@ -370,6 +370,9 @@ mod tests {
         let s = vec![v("4702A", "ST", (2027, 1, 2))];
         let d = NaiveDate::from_ymd_opt(2027, 1, 2).unwrap();
         assert!(find_voyage(&s, "ST", d, "4702A").is_some());
+        // Ship matches case-insensitively; callers key sailings by the
+        // schedule's canonical code.
+        assert_eq!(find_voyage(&s, "st", d, "4702A").map(|m| m.ship_code.as_str()), Some("ST"));
         assert!(find_voyage(&s, "RU", d, "4702A").is_none());
         assert!(find_voyage(&s, "ST", NaiveDate::from_ymd_opt(2027, 1, 3).unwrap(), "4702A").is_none());
         assert!(find_voyage(&s, "ST", d, "NOPE").is_none());
@@ -449,7 +452,14 @@ async fn prices(
     let brand = parse_brand(&q.brand)?;
     let date = parse_date(&q.sail_date)?;
     let voyage = require_voyage(brand, q.voyage.as_deref())?;
-    let key = SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: voyage };
+    // Princess: validate the voyage against the schedule first and key the
+    // sailing by the schedule's ship code (the match is case-insensitive).
+    let matched = match voyage {
+        Some(v) => Some(resolve_princess_voyage(&s, &q.ship, date, v).await?),
+        None => None,
+    };
+    let ship = matched.as_ref().map_or(q.ship.as_str(), |m| m.ship_code.as_str());
+    let key = SailingKey { brand, ship_code: ship, sail_date: date, voyage_code: voyage };
 
     let cached = s.repo.latest_sailing_prices(&key).await.map_err(db_err)?;
     let cutoff = Utc::now() - Duration::hours(FRESH_HOURS);
@@ -466,21 +476,20 @@ async fn prices(
     }
 
     // Cache miss or stale → live fetch + seed.
-    let (fetch, currency) = match voyage {
-        Some(v) => {
-            let currency = resolve_princess_voyage(&s, &q.ship, date, v).await?.currency;
+    let (fetch, currency) = match &matched {
+        Some(m) => {
             let mut cache = royaltracker_core::PrincessPriceCache::default();
             let r = cache
-                .products_shared(&s.princess, &s.princess_extras, v, &currency)
+                .products_shared(&s.princess, &s.princess_extras, &m.voyage_code, &m.currency)
                 .await
                 .map(royaltracker_core::princess_fetch_outcome);
-            (r, Some(currency))
+            (r, Some(m.currency.as_str()))
         }
         None => (s.public_client.fetch_public_products(brand, &q.ship, date).await, None),
     };
     match fetch {
         Ok(PublicFetch::Products(products)) => {
-            let sailing_id = s.repo.upsert_sailing(&key, currency.as_deref()).await.map_err(db_err)?;
+            let sailing_id = s.repo.upsert_sailing(&key, currency).await.map_err(db_err)?;
             for p in &products {
                 let tracked_id = s
                     .repo
@@ -651,16 +660,19 @@ async fn subscribe(
         None => (device::mint_device_id(), true),
     };
 
-    // Seed the sailing + tracked product so the sweep keeps it fresh.
-    let currency = match voyage {
-        Some(v) => Some(resolve_princess_voyage(&s, &body.ship, date, v).await?.currency),
+    // Seed the sailing + tracked product so the sweep keeps it fresh. Princess
+    // sailings are keyed by the schedule's ship code (matched case-insensitively).
+    let matched = match voyage {
+        Some(v) => Some(resolve_princess_voyage(&s, &body.ship, date, v).await?),
         None => None,
     };
+    let ship = matched.as_ref().map_or(body.ship.as_str(), |m| m.ship_code.as_str());
+    let currency = matched.as_ref().map(|m| m.currency.as_str());
     let sailing_id = s
         .repo
         .upsert_sailing(
-            &SailingKey { brand, ship_code: &body.ship, sail_date: date, voyage_code: voyage },
-            currency.as_deref(),
+            &SailingKey { brand, ship_code: ship, sail_date: date, voyage_code: voyage },
+            currency,
         )
         .await
         .map_err(db_err)?;
