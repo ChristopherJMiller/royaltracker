@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum Brand {
     Royal,
     Celebrity,
+    Princess,
 }
 
 impl Brand {
@@ -13,6 +14,7 @@ impl Brand {
         match self {
             Brand::Royal => "www.royalcaribbean.com",
             Brand::Celebrity => "www.celebritycruises.com",
+            Brand::Princess => "www.princess.com",
         }
     }
 
@@ -24,6 +26,7 @@ impl Brand {
         match self {
             Brand::Royal => "R",
             Brand::Celebrity => "C",
+            Brand::Princess => "P",
         }
     }
 
@@ -31,6 +34,7 @@ impl Brand {
         match self {
             Brand::Royal => "royal",
             Brand::Celebrity => "celebrity",
+            Brand::Princess => "princess",
         }
     }
 
@@ -38,6 +42,24 @@ impl Brand {
         match self {
             Brand::Royal => "royal",
             Brand::Celebrity => "celebrity",
+            Brand::Princess => "princess",
+        }
+    }
+
+    /// Human-facing brand name.
+    pub fn label(self) -> &'static str {
+        match self {
+            Brand::Royal => "Royal Caribbean",
+            Brand::Celebrity => "Celebrity",
+            Brand::Princess => "Princess",
+        }
+    }
+
+    /// The cruise line (account family) this brand belongs to.
+    pub fn line(self) -> CruiseLine {
+        match self {
+            Brand::Royal | Brand::Celebrity => CruiseLine::Rcg,
+            Brand::Princess => CruiseLine::Princess,
         }
     }
 }
@@ -54,6 +76,7 @@ impl std::str::FromStr for Brand {
         match s.to_ascii_lowercase().as_str() {
             "royal" | "r" | "rcl" => Ok(Brand::Royal),
             "celebrity" | "c" | "x" => Ok(Brand::Celebrity),
+            "princess" | "p" | "pcl" => Ok(Brand::Princess),
             _ => Err(ParseBrandError(s.to_string())),
         }
     }
@@ -63,16 +86,79 @@ impl std::str::FromStr for Brand {
 #[error("unknown brand: {0}")]
 pub struct ParseBrandError(pub String);
 
+/// A cruise line = one login system. Royal Caribbean and Celebrity share one
+/// account (`Rcg`); Princess has its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CruiseLine {
+    Rcg,
+    Princess,
+}
+
+impl CruiseLine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CruiseLine::Rcg => "rcg",
+            CruiseLine::Princess => "princess",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CruiseLine::Rcg => "Royal Caribbean & Celebrity",
+            CruiseLine::Princess => "Princess",
+        }
+    }
+
+    pub fn brands(self) -> &'static [Brand] {
+        match self {
+            CruiseLine::Rcg => &[Brand::Royal, Brand::Celebrity],
+            CruiseLine::Princess => &[Brand::Princess],
+        }
+    }
+}
+
+impl std::fmt::Display for CruiseLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CruiseLine {
+    type Err = ParseCruiseLineError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "rcg" => Ok(CruiseLine::Rcg),
+            "princess" => Ok(CruiseLine::Princess),
+            _ => Err(ParseCruiseLineError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unknown cruise line: {0}")]
+pub struct ParseCruiseLineError(pub String);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub telegram_chat_id: i64,
     pub telegram_username: Option<String>,
-    pub rcg_username: String,
-    pub rcg_password_ct: Vec<u8>,
-    pub rcg_password_nonce: Vec<u8>,
-    pub brand_pref: Brand,
     pub active: bool,
+}
+
+/// One set of cruise-line credentials belonging to a user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CruiseAccount {
+    pub id: i64,
+    pub user_id: i64,
+    pub line: CruiseLine,
+    pub login: String,
+    pub password_ct: Vec<u8>,
+    pub password_nonce: Vec<u8>,
+    pub active: bool,
+    pub last_login_at: Option<DateTime<Utc>>,
+    pub last_login_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +183,12 @@ pub struct Booking {
     /// least one order leaked the room; `None` otherwise.
     #[serde(default)]
     pub assigned_stateroom: Option<String>,
+    /// Princess voyage code (e.g. `5543`); `None` for RCG bookings.
+    #[serde(default)]
+    pub voyage_code: Option<String>,
+    /// ISO currency of the account's prices; `None` means USD.
+    #[serde(default)]
+    pub currency: Option<String>,
 }
 
 impl Booking {
@@ -106,53 +198,72 @@ impl Booking {
     }
 }
 
-/// Map a two-letter ship code to its full name. Kept in sync with the `SHIP_NAMES`
-/// table in the web Mini App (`static/app.js`). Returns `None` for unknown codes
-/// so callers can fall back to the raw code.
-pub fn ship_name(code: &str) -> Option<&'static str> {
-    let name = match code {
+/// Map a brand + two-letter ship code to its full name. Codes are only unique
+/// within a brand (`EP`/`SU` exist on several). The web Mini App gets ship names
+/// from the server rather than keeping its own table. Returns `None` for unknown
+/// codes so callers can fall back to the raw code.
+pub fn ship_name(brand: Brand, code: &str) -> Option<&'static str> {
+    let name = match (brand, code) {
         // Celebrity
-        "AS" => "Celebrity Ascent",
-        "AX" => "Celebrity Apex",
-        "BE" => "Celebrity Beyond",
-        "EC" => "Celebrity Eclipse",
-        "ED" => "Celebrity Edge",
-        "EQ" => "Celebrity Equinox",
-        "IN" => "Celebrity Infinity",
-        "MI" => "Celebrity Millennium",
-        "RF" => "Celebrity Reflection",
-        "SI" => "Celebrity Silhouette",
-        "SL" => "Celebrity Solstice",
-        "SU" => "Celebrity Summit",
-        "XC" => "Celebrity Xcel",
+        (Brand::Celebrity, "AS") => "Celebrity Ascent",
+        (Brand::Celebrity, "AX") => "Celebrity Apex",
+        (Brand::Celebrity, "BE") => "Celebrity Beyond",
+        (Brand::Celebrity, "EC") => "Celebrity Eclipse",
+        (Brand::Celebrity, "ED") => "Celebrity Edge",
+        (Brand::Celebrity, "EQ") => "Celebrity Equinox",
+        (Brand::Celebrity, "IN") => "Celebrity Infinity",
+        (Brand::Celebrity, "MI") => "Celebrity Millennium",
+        (Brand::Celebrity, "RF") => "Celebrity Reflection",
+        (Brand::Celebrity, "SI") => "Celebrity Silhouette",
+        (Brand::Celebrity, "SL") => "Celebrity Solstice",
+        (Brand::Celebrity, "SU") => "Celebrity Summit",
+        (Brand::Celebrity, "XC") => "Celebrity Xcel",
         // Royal Caribbean
-        "AD" => "Adventure of the Seas",
-        "AL" => "Allure of the Seas",
-        "AN" => "Anthem of the Seas",
-        "BR" => "Brilliance of the Seas",
-        "EN" => "Enchantment of the Seas",
-        "EP" => "Explorer of the Seas",
-        "FR" => "Freedom of the Seas",
-        "GR" => "Grandeur of the Seas",
-        "HM" => "Harmony of the Seas",
-        "IC" => "Icon of the Seas",
-        "JW" => "Jewel of the Seas",
-        "LB" => "Liberty of the Seas",
-        "MA" => "Mariner of the Seas",
-        "NV" => "Navigator of the Seas",
-        "OA" => "Oasis of the Seas",
-        "OD" => "Odyssey of the Seas",
-        "OV" => "Ovation of the Seas",
-        "QN" => "Quantum of the Seas",
-        "RD" => "Radiance of the Seas",
-        "RH" => "Rhapsody of the Seas",
-        "SP" => "Spectrum of the Seas",
-        "SR" => "Star of the Seas",
-        "SY" => "Symphony of the Seas",
-        "UT" => "Utopia of the Seas",
-        "VS" => "Vision of the Seas",
-        "VY" => "Voyager of the Seas",
-        "WN" => "Wonder of the Seas",
+        (Brand::Royal, "AD") => "Adventure of the Seas",
+        (Brand::Royal, "AL") => "Allure of the Seas",
+        (Brand::Royal, "AN") => "Anthem of the Seas",
+        (Brand::Royal, "BR") => "Brilliance of the Seas",
+        (Brand::Royal, "EN") => "Enchantment of the Seas",
+        (Brand::Royal, "EP") => "Explorer of the Seas",
+        (Brand::Royal, "FR") => "Freedom of the Seas",
+        (Brand::Royal, "GR") => "Grandeur of the Seas",
+        (Brand::Royal, "HM") => "Harmony of the Seas",
+        (Brand::Royal, "IC") => "Icon of the Seas",
+        (Brand::Royal, "JW") => "Jewel of the Seas",
+        (Brand::Royal, "LB") => "Liberty of the Seas",
+        (Brand::Royal, "MA") => "Mariner of the Seas",
+        (Brand::Royal, "NV") => "Navigator of the Seas",
+        (Brand::Royal, "OA") => "Oasis of the Seas",
+        (Brand::Royal, "OD") => "Odyssey of the Seas",
+        (Brand::Royal, "OV") => "Ovation of the Seas",
+        (Brand::Royal, "QN") => "Quantum of the Seas",
+        (Brand::Royal, "RD") => "Radiance of the Seas",
+        (Brand::Royal, "RH") => "Rhapsody of the Seas",
+        (Brand::Royal, "SP") => "Spectrum of the Seas",
+        (Brand::Royal, "SR") => "Star of the Seas",
+        (Brand::Royal, "SY") => "Symphony of the Seas",
+        (Brand::Royal, "UT") => "Utopia of the Seas",
+        (Brand::Royal, "VS") => "Vision of the Seas",
+        (Brand::Royal, "VY") => "Voyager of the Seas",
+        (Brand::Royal, "WN") => "Wonder of the Seas",
+        // Princess
+        (Brand::Princess, "AP") => "Grand Princess",
+        (Brand::Princess, "CB") => "Caribbean Princess",
+        (Brand::Princess, "CO") => "Coral Princess",
+        (Brand::Princess, "DI") => "Diamond Princess",
+        (Brand::Princess, "EP") => "Emerald Princess",
+        (Brand::Princess, "EX") => "Enchanted Princess",
+        (Brand::Princess, "GP") => "Regal Princess",
+        (Brand::Princess, "IP") => "Island Princess",
+        (Brand::Princess, "KP") => "Crown Princess",
+        (Brand::Princess, "MJ") => "Majestic Princess",
+        (Brand::Princess, "RP") => "Royal Princess",
+        (Brand::Princess, "RU") => "Ruby Princess",
+        (Brand::Princess, "SA") => "Sapphire Princess",
+        (Brand::Princess, "ST") => "Star Princess",
+        (Brand::Princess, "SU") => "Sun Princess",
+        (Brand::Princess, "XP") => "Discovery Princess",
+        (Brand::Princess, "YP") => "Sky Princess",
         _ => return None,
     };
     Some(name)
@@ -160,7 +271,7 @@ pub fn ship_name(code: &str) -> Option<&'static str> {
 
 /// Every ship we know a name for, as `(code, name, brand)`. Backs the public
 /// tier's ship picker so a user can look up any sailing before anyone has tracked
-/// it. Keep in sync with `ship_name`.
+/// it. Keep in sync with `ship_name` (the Mini App fetches this list from the server).
 pub fn all_ships() -> &'static [(&'static str, &'static str, Brand)] {
     &[
         // Celebrity
@@ -205,6 +316,24 @@ pub fn all_ships() -> &'static [(&'static str, &'static str, Brand)] {
         ("VS", "Vision of the Seas", Brand::Royal),
         ("VY", "Voyager of the Seas", Brand::Royal),
         ("WN", "Wonder of the Seas", Brand::Royal),
+        // Princess
+        ("AP", "Grand Princess", Brand::Princess),
+        ("CB", "Caribbean Princess", Brand::Princess),
+        ("CO", "Coral Princess", Brand::Princess),
+        ("DI", "Diamond Princess", Brand::Princess),
+        ("EP", "Emerald Princess", Brand::Princess),
+        ("EX", "Enchanted Princess", Brand::Princess),
+        ("GP", "Regal Princess", Brand::Princess),
+        ("IP", "Island Princess", Brand::Princess),
+        ("KP", "Crown Princess", Brand::Princess),
+        ("MJ", "Majestic Princess", Brand::Princess),
+        ("RP", "Royal Princess", Brand::Princess),
+        ("RU", "Ruby Princess", Brand::Princess),
+        ("SA", "Sapphire Princess", Brand::Princess),
+        ("ST", "Star Princess", Brand::Princess),
+        ("SU", "Sun Princess", Brand::Princess),
+        ("XP", "Discovery Princess", Brand::Princess),
+        ("YP", "Sky Princess", Brand::Princess),
     ]
 }
 
@@ -248,7 +377,10 @@ impl HeightTier {
 /// classes we've confirmed are listed; unknown ships return `None` and callers
 /// degrade to deck-only. Ranges are coarse public facts used solely for a
 /// low/mid/high tier — deliberately not precise venue mapping.
-pub fn cabin_deck_range(ship_code: &str) -> Option<(u16, u16)> {
+pub fn cabin_deck_range(brand: Brand, ship_code: &str) -> Option<(u16, u16)> {
+    if brand == Brand::Princess {
+        return None;
+    }
     match ship_code {
         // Oasis class
         "WN" | "SY" | "HM" | "OA" | "AL" | "UT" => Some((3, 18)),
@@ -273,9 +405,12 @@ pub struct CabinLocation {
     pub notes: Vec<String>,
 }
 
-pub fn cabin_location(ship_code: &str, cabin: &str) -> Option<CabinLocation> {
+pub fn cabin_location(brand: Brand, ship_code: &str, cabin: &str) -> Option<CabinLocation> {
+    if brand == Brand::Princess {
+        return None;
+    }
     let deck = deck_of_cabin(cabin)?;
-    let range = cabin_deck_range(ship_code);
+    let range = cabin_deck_range(brand, ship_code);
     let tier = range.map(|(lo, hi)| {
         let span = hi.saturating_sub(lo).max(1);
         if deck <= lo + span / 3 {
@@ -402,6 +537,8 @@ pub struct Sailing {
     pub brand: Brand,
     pub ship_code: String,
     pub sail_date: NaiveDate,
+    pub voyage_code: Option<String>,
+    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,6 +594,14 @@ impl Diff {
     }
 }
 
+/// Format a price for display. `None` or `"USD"` renders as `$24.99`; any other
+/// currency as `AUD 24.94`.
+pub fn format_money(amount: f64, currency: Option<&str>) -> String {
+    match currency {
+        None | Some("USD") => format!("${amount:.2}"),
+        Some(cur) => format!("{cur} {amount:.2}"),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,21 +630,21 @@ mod tests {
 
     #[test]
     fn ship_name_known_and_unknown() {
-        assert_eq!(ship_name("WN"), Some("Wonder of the Seas"));
-        assert_eq!(ship_name("AX"), Some("Celebrity Apex"));
-        assert_eq!(ship_name("ZZ"), None);
+        assert_eq!(ship_name(Brand::Royal, "WN"), Some("Wonder of the Seas"));
+        assert_eq!(ship_name(Brand::Celebrity, "AX"), Some("Celebrity Apex"));
+        assert_eq!(ship_name(Brand::Royal, "ZZ"), None);
     }
 
     #[test]
     fn cabin_location_tiers() {
         // Wonder (Oasis, decks 3-18): 9434 is mid-ship height.
-        let l = cabin_location("WN", "9434").unwrap();
+        let l = cabin_location(Brand::Royal, "WN", "9434").unwrap();
         assert_eq!(l.deck, 9);
         assert_eq!(l.tier, Some(HeightTier::Middle));
         assert!(!l.notes.is_empty());
 
         // Deck 3 is the lowest stateroom deck → Lower + waterline note.
-        let low = cabin_location("WN", "3218").unwrap();
+        let low = cabin_location(Brand::Royal, "WN", "3218").unwrap();
         assert_eq!(low.tier, Some(HeightTier::Lower));
         assert!(low.notes.iter().any(|n| n.contains("waterline")));
     }
@@ -507,7 +652,7 @@ mod tests {
     #[test]
     fn cabin_location_unknown_ship_degrades_to_deck_only() {
         // Unknown ship code → deck derived, but no tier/range-based notes.
-        let l = cabin_location("ZZ", "9434").unwrap();
+        let l = cabin_location(Brand::Royal, "ZZ", "9434").unwrap();
         assert_eq!(l.deck, 9);
         assert_eq!(l.tier, None);
         assert!(l.notes.is_empty());
@@ -515,6 +660,60 @@ mod tests {
 
     #[test]
     fn cabin_location_none_for_gty() {
-        assert!(cabin_location("WN", "GTY").is_none());
+        assert!(cabin_location(Brand::Royal, "WN", "GTY").is_none());
+    }
+
+    #[test]
+    fn cruise_line_roundtrip() {
+        for l in [CruiseLine::Rcg, CruiseLine::Princess] {
+            assert_eq!(l.as_str().parse::<CruiseLine>().unwrap(), l);
+        }
+        assert!("royal".parse::<CruiseLine>().is_err());
+        assert_eq!(CruiseLine::Rcg.brands(), &[Brand::Royal, Brand::Celebrity]);
+        assert_eq!(Brand::Princess.line(), CruiseLine::Princess);
+        assert_eq!(Brand::Celebrity.line(), CruiseLine::Rcg);
+        assert_eq!(CruiseLine::Rcg.label(), "Royal Caribbean & Celebrity");
+        assert_eq!(CruiseLine::Princess.label(), "Princess");
+    }
+
+    #[test]
+    fn brand_princess_parses() {
+        assert_eq!("princess".parse::<Brand>().unwrap(), Brand::Princess);
+        assert_eq!("pcl".parse::<Brand>().unwrap(), Brand::Princess);
+        assert_eq!(Brand::Princess.to_string(), "princess");
+        assert_eq!(Brand::Princess.host(), "www.princess.com");
+        assert_eq!(Brand::Princess.code(), "P");
+    }
+
+    #[test]
+    fn ship_codes_are_brand_qualified() {
+        assert_eq!(ship_name(Brand::Royal, "EP"), Some("Explorer of the Seas"));
+        assert_eq!(ship_name(Brand::Princess, "EP"), Some("Emerald Princess"));
+        assert_eq!(ship_name(Brand::Celebrity, "SU"), Some("Celebrity Summit"));
+        assert_eq!(ship_name(Brand::Princess, "SU"), Some("Sun Princess"));
+        assert_eq!(ship_name(Brand::Princess, "OA"), None);
+        assert_eq!(
+            all_ships()
+                .iter()
+                .filter(|s| s.2 == Brand::Princess)
+                .count(),
+            17
+        );
+        for (code, name, brand) in all_ships() {
+            assert_eq!(ship_name(*brand, code), Some(*name));
+        }
+    }
+
+    #[test]
+    fn princess_has_no_cabin_location() {
+        assert!(cabin_location(Brand::Princess, "XP", "9434").is_none());
+        assert!(cabin_location(Brand::Royal, "WN", "9434").is_some());
+    }
+
+    #[test]
+    fn format_money_usd_and_aud() {
+        assert_eq!(format_money(24.99, None), "$24.99");
+        assert_eq!(format_money(24.99, Some("USD")), "$24.99");
+        assert_eq!(format_money(24.94, Some("AUD")), "AUD 24.94");
     }
 }
