@@ -123,3 +123,39 @@ async fn fetch_failure_increments_counter() {
     let t3 = due3.iter().find(|t| t.tracked_id == tid).unwrap();
     assert_eq!(t3.consecutive_failures, 0);
 }
+
+#[tokio::test]
+async fn public_prices_use_sailing_currency_and_unit_label() {
+    let r = repo().await;
+    let date = NaiveDate::from_ymd_opt(2027, 1, 2).unwrap();
+    let snap = |tracked_id, price: f64, raw: serde_json::Value| SailingSnapshot {
+        tracked_id,
+        fetched_at: Utc::now(),
+        adult_promo_price: Some(price),
+        child_promo_price: None,
+        base_price: None,
+        promo_present: true,
+        raw_response: raw,
+    };
+
+    // Princess AUD voyage with a per-day unit in the snapshot's raw_response.
+    let pk = SailingKey { brand: Brand::Princess, ship_code: "ST", sail_date: date, voyage_code: Some("4702A") };
+    let sid = r.upsert_sailing(&pk, Some("AUD")).await.unwrap();
+    let tid = r.upsert_tracked_product(sid, "WIFI-1", "extras", Some("Wi-Fi"), None).await.unwrap();
+    r.record_public_price(tid, &snap(tid, 24.94, serde_json::json!({"unit_label": "per person / day"})))
+        .await
+        .unwrap();
+    let p = r.latest_sailing_prices(&pk).await.unwrap();
+    assert_eq!(p.len(), 1);
+    assert_eq!(p[0].price_label.as_deref(), Some("AUD 24.94"));
+    assert_eq!(p[0].unit_label.as_deref(), Some("per person / day"));
+
+    // RCG (NULL currency) keeps "$" and has no unit.
+    let rk = SailingKey { brand: Brand::Royal, ship_code: "OA", sail_date: date, voyage_code: None };
+    let rid = r.upsert_sailing(&rk, None).await.unwrap();
+    let rt = r.upsert_tracked_product(rid, "3222", "beverage", Some("Bev"), None).await.unwrap();
+    r.record_public_price(rt, &snap(rt, 87.99, serde_json::Value::Null)).await.unwrap();
+    let p = r.latest_sailing_prices(&rk).await.unwrap();
+    assert_eq!(p[0].price_label.as_deref(), Some("$87.99"));
+    assert_eq!(p[0].unit_label, None);
+}
