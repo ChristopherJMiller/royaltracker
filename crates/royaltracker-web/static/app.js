@@ -206,12 +206,13 @@ function AccountsView({ lines, onBack, onChanged }) {
     try {
       await api(`/api/accounts/${encodeURIComponent(a.cruise_line)}`, { method: "DELETE" });
       tg?.HapticFeedback?.notificationOccurred?.("success");
-      await load();
-      await onChanged();
     } catch (e) {
       tg?.HapticFeedback?.notificationOccurred?.("error");
       alert(`Failed: ${e.message}`);
+      return;
     }
+    // The DELETE succeeded; a reload failure must not read as a removal failure.
+    try { await load(); await onChanged(); } catch (e) { console.error(e); }
   }
 
   return html`
@@ -895,6 +896,13 @@ function App() {
     setView("bookings");
   }, [loadMe, loadBookings, loadWatched]);
 
+  // After linking/removing an account: zero accounts -> link form, else refresh in place.
+  const accountsChanged = useCallback(async () => {
+    const ok = await loadMe();
+    if (!ok) { setBookings([]); setWatched([]); setView("register"); return; }
+    await Promise.all([loadBookings(), loadWatched()]);
+  }, [loadMe, loadBookings, loadWatched]);
+
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
   async function openBooking(b) {
@@ -909,7 +917,7 @@ function App() {
   } else if (view === "register") {
     body = html`<${AccountForm} lines=${LINES} onLinked=${bootstrap} />`;
   } else if (view === "accounts") {
-    body = html`<${AccountsView} lines=${LINES} onBack=${() => setView("bookings")} onChanged=${async () => { await loadMe(); await loadBookings(); }} />`;
+    body = html`<${AccountsView} lines=${LINES} onBack=${() => setView("bookings")} onChanged=${accountsChanged} />`;
   } else if (view === "bookings") {
     body = html`<${BookingsList} bookings=${bookings}
                                   onOpen=${openBooking}
