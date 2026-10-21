@@ -32,6 +32,8 @@ pub struct PriceDropAlert<'a> {
     pub manage_url: Option<&'a str>,
     /// ISO currency code for prices; `None` = USD.
     pub currency: Option<&'a str>,
+    /// Pricing unit shown after the new price, e.g. "per person / day".
+    pub unit_label: Option<&'a str>,
 }
 
 /// A pre-rendered text alert (e.g. cabin assignment). `body` is emitted verbatim.
@@ -89,6 +91,7 @@ impl TelegramChannel {
             msrp_label: alert.msrp_label,
             itinerary: alert.itinerary,
             currency: alert.currency,
+            unit_label: alert.unit_label,
         };
         send_diff(&self.bot, chat_id, &ctx)
             .await
