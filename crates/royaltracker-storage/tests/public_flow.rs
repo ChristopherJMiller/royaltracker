@@ -4,7 +4,7 @@
 #![cfg(feature = "sqlite")]
 
 use chrono::{NaiveDate, Utc};
-use royaltracker_storage::{connect, NewPublicChannel, PriceRepo, SailingSnapshot};
+use royaltracker_storage::{connect, NewPublicChannel, PriceRepo, SailingKey, SailingSnapshot};
 use royaltracker_types::{AlertMode, Brand, PublicChannelKind};
 
 async fn repo() -> impl PriceRepo {
@@ -17,10 +17,11 @@ async fn repo() -> impl PriceRepo {
 async fn public_subscription_roundtrip() {
     let r = repo().await;
     let date = NaiveDate::from_ymd_opt(2027, 5, 7).unwrap();
+    let key = SailingKey { brand: Brand::Royal, ship_code: "OA", sail_date: date, voyage_code: None };
 
     // Sailing + tracked product (public scope).
-    let sailing_id = r.upsert_sailing(Brand::Royal, "OA", date).await.unwrap();
-    assert!(r.get_sailing(Brand::Royal, "OA", date).await.unwrap().is_some());
+    let sailing_id = r.upsert_sailing(&key, None).await.unwrap();
+    assert!(r.get_sailing(&key).await.unwrap().is_some());
     let tracked_id = r
         .upsert_tracked_product(sailing_id, "3222", "beverage", Some("Deluxe Beverage"), None)
         .await
@@ -47,7 +48,7 @@ async fn public_subscription_roundtrip() {
     )
     .await
     .unwrap();
-    let prices = r.latest_sailing_prices(Brand::Royal, "OA", date).await.unwrap();
+    let prices = r.latest_sailing_prices(&key).await.unwrap();
     assert_eq!(prices.len(), 1);
     assert_eq!(prices[0].promo_price, Some(87.99));
 
@@ -89,7 +90,8 @@ async fn public_subscription_roundtrip() {
 async fn fetch_failure_increments_counter() {
     let r = repo().await;
     let date = NaiveDate::from_ymd_opt(2027, 1, 1).unwrap();
-    let sid = r.upsert_sailing(Brand::Celebrity, "AX", date).await.unwrap();
+    let key = SailingKey { brand: Brand::Celebrity, ship_code: "AX", sail_date: date, voyage_code: None };
+    let sid = r.upsert_sailing(&key, None).await.unwrap();
     let tid = r.upsert_tracked_product(sid, "Y8UG", "drinks", None, None).await.unwrap();
 
     // A tracked product with no snapshot is due to be scraped.
