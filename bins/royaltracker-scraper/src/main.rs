@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
 
     // Phase B: per-booking price scrape with fan-out. Each watched product is
     // fetched exactly once regardless of how many users share the booking.
-    if clients_by_brand.is_empty() {
+    if clients_by_brand.is_empty() && princess_client.is_none() {
         warn!("no authenticated clients available; skipping price scrape");
         return Ok(());
     }

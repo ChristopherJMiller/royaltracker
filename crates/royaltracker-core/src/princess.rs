@@ -96,33 +96,80 @@ pub fn merge_products(
     m
 }
 
-/// Per-run Princess price cache. Each excursions fetch (per voyage+currency)
-/// and each extras fetch (per currency) happens at most once.
+/// Per-run Princess price cache. Each excursions key (voyage, currency) and
+/// each extras key (currency) is attempted at most once per cache instance,
+/// whether it succeeds or fails (`None` records a failure).
 #[derive(Default)]
 pub struct PrincessPriceCache {
-    excursions: HashMap<(String, String), Vec<PublicProduct>>,
-    extras: HashMap<String, Vec<PublicProduct>>,
+    excursions: HashMap<(String, String), Option<Vec<PublicProduct>>>,
+    extras: HashMap<String, Option<Vec<PublicProduct>>>,
 }
 
 impl PrincessPriceCache {
+    /// Returns whatever half succeeded; `Err` only when both failed.
     pub async fn products(
         &mut self,
         client: &PrincessGuestClient,
         voyage_code: &str,
         currency: &str,
     ) -> Result<HashMap<String, PublicProduct>, ApiError> {
+        let r = self
+            .products_with(
+                voyage_code,
+                currency,
+                || client.fetch_excursions(voyage_code, currency),
+                || client.fetch_extras(currency),
+            )
+            .await;
+        r.ok_or_else(|| ApiError::Status { status: 502, body: format!("Princess fetch failed for {voyage_code}/{currency}") })
+    }
+
+    /// Network-free core: fetch closures run at most once per key. `None` when
+    /// both halves failed.
+    pub(crate) async fn products_with<E, FE, FX, FutE, FutX>(
+        &mut self,
+        voyage_code: &str,
+        currency: &str,
+        fetch_ex: FE,
+        fetch_extras: FX,
+    ) -> Option<HashMap<String, PublicProduct>>
+    where
+        E: std::fmt::Display,
+        FE: FnOnce() -> FutE,
+        FX: FnOnce() -> FutX,
+        FutE: std::future::Future<Output = Result<Vec<PublicProduct>, E>>,
+        FutX: std::future::Future<Output = Result<Vec<PublicProduct>, E>>,
+    {
         let ek = (voyage_code.to_string(), currency.to_string());
         if !self.excursions.contains_key(&ek) {
-            let v = client.fetch_excursions(voyage_code, currency).await?;
-            self.excursions.insert(ek.clone(), v);
+            let r = match fetch_ex().await {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    warn!(error = %e, voyage = voyage_code, currency, "princess excursions fetch failed");
+                    None
+                }
+            };
+            self.excursions.insert(ek.clone(), r);
         }
         if !self.extras.contains_key(currency) {
-            let v = client.fetch_extras(currency).await?;
-            self.extras.insert(currency.to_string(), v);
+            let r = match fetch_extras().await {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    warn!(error = %e, currency, "princess extras fetch failed");
+                    None
+                }
+            };
+            self.extras.insert(currency.to_string(), r);
         }
-        Ok(merge_products(self.excursions[&ek].clone(), self.extras[currency].clone()))
+        let ex = self.excursions[&ek].clone();
+        let xt = self.extras[currency].clone();
+        if ex.is_none() && xt.is_none() {
+            return None;
+        }
+        Some(merge_products(ex.unwrap_or_default(), xt.unwrap_or_default()))
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +196,65 @@ mod tests {
     fn merge_prefers_excursion_and_extras_by_code() {
         let m = merge_products(vec![prod("SJD-100")], vec![prod("2323")]);
         assert!(m.contains_key("SJD-100") && m.contains_key("2323"));
+    }
+
+    #[test]
+    fn merge_collision_prefers_excursion() {
+        let mut ex = prod("X");
+        ex.promo_cents = Some(111);
+        let mut xt = prod("X");
+        xt.promo_cents = Some(222);
+        let m = merge_products(vec![ex], vec![xt]);
+        assert_eq!(m["X"].promo_cents, Some(111));
+    }
+
+    #[tokio::test]
+    async fn failed_fetch_attempted_once_and_partial_returned() {
+        use std::cell::Cell;
+        let ex_calls = Cell::new(0);
+        let xt_calls = Cell::new(0);
+        let mut cache = PrincessPriceCache::default();
+        for _ in 0..3 {
+            let r = cache
+                .products_with(
+                    "V1",
+                    "USD",
+                    || async {
+                        ex_calls.set(ex_calls.get() + 1);
+                        Ok::<_, String>(vec![prod("SJD-1")])
+                    },
+                    || async {
+                        xt_calls.set(xt_calls.get() + 1);
+                        Err::<Vec<PublicProduct>, _>("boom".to_string())
+                    },
+                )
+                .await
+                .expect("excursions succeeded");
+            assert!(r.contains_key("SJD-1") && r.len() == 1);
+        }
+        assert_eq!((ex_calls.get(), xt_calls.get()), (1, 1));
+
+        // Both failing: None, and still only one attempt per key.
+        let calls = Cell::new(0);
+        let mut c2 = PrincessPriceCache::default();
+        for _ in 0..3 {
+            let r = c2
+                .products_with(
+                    "V2",
+                    "USD",
+                    || async {
+                        calls.set(calls.get() + 1);
+                        Err::<Vec<PublicProduct>, _>("x".to_string())
+                    },
+                    || async {
+                        calls.set(calls.get() + 1);
+                        Err::<Vec<PublicProduct>, _>("y".to_string())
+                    },
+                )
+                .await;
+            assert!(r.is_none());
+        }
+        assert_eq!(calls.get(), 2);
     }
 
     fn ctx() -> PrincessBookingContext {
