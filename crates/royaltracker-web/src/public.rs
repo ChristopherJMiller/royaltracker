@@ -14,7 +14,7 @@ use axum::{Json, Router};
 use chrono::{Duration, NaiveDate, Utc};
 use royaltracker_api::{PublicClient, PublicFetch};
 use royaltracker_storage::{
-    DefaultRepo, NewPublicChannel, PriceRepo, PublicPriceDto, SailingSnapshot,
+    DefaultRepo, NewPublicChannel, PriceRepo, PublicPriceDto, SailingKey, SailingSnapshot,
 };
 use royaltracker_types::{AlertMode, Brand, PublicChannelKind};
 use serde::{Deserialize, Serialize};
@@ -173,7 +173,7 @@ async fn prices(
 
     let cached = s
         .repo
-        .latest_sailing_prices(brand, &q.ship, date)
+        .latest_sailing_prices(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None })
         .await
         .map_err(db_err)?;
     let cutoff = Utc::now() - Duration::hours(FRESH_HOURS);
@@ -196,7 +196,7 @@ async fn prices(
         .await
     {
         Ok(PublicFetch::Products(products)) => {
-            let sailing_id = s.repo.upsert_sailing(brand, &q.ship, date).await.map_err(db_err)?;
+            let sailing_id = s.repo.upsert_sailing(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None }, None).await.map_err(db_err)?;
             for p in &products {
                 let tracked_id = s
                     .repo
@@ -224,7 +224,7 @@ async fn prices(
             }
             let fresh = s
                 .repo
-                .latest_sailing_prices(brand, &q.ship, date)
+                .latest_sailing_prices(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None })
                 .await
                 .map_err(db_err)?;
             Ok(Json(PricesResponse {
@@ -368,7 +368,7 @@ async fn subscribe(
     };
 
     // Seed the sailing + tracked product so the sweep keeps it fresh.
-    let sailing_id = s.repo.upsert_sailing(brand, &body.ship, date).await.map_err(db_err)?;
+    let sailing_id = s.repo.upsert_sailing(&SailingKey { brand, ship_code: &body.ship, sail_date: date, voyage_code: None }, None).await.map_err(db_err)?;
     let category = body.category.clone().unwrap_or_default();
     let tracked_id = s
         .repo

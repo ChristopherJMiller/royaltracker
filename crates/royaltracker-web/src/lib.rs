@@ -21,6 +21,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/refresh", post(handlers::refresh))
         .route("/api/catalog/refresh", post(handlers::refresh_catalog))
         .route("/api/me", get(handlers::get_me))
+        .route("/api/accounts", get(handlers::list_accounts))
+        .route("/api/accounts/:line", delete(handlers::delete_account))
         .route("/api/bookings", get(handlers::list_bookings))
         .route("/api/catalog/search", get(handlers::search_catalog))
         .route("/api/catalog/browse", get(handlers::browse_catalog))
