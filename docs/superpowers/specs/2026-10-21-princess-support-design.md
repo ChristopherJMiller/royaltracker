@@ -307,11 +307,13 @@ Common traits:
    - JWT claims include `ccn` (Captain Circle no.), `uiid`, and scope `mail openid cn ocean creduser isMemberOf siebel`.
    - Optional precheck: `GET …/guest/p1.0/account-lookup?username=<login>` returns `{"scope":"ocean","status":"Active"}`.
 2. **Bridge into the booking site.** `GET https://book.princess.com/captaincircle/quickLogin.do?temporary=<epoch_ms>` with the cookie jar returns `{"status":"success",…}`.
-3. **Current booking context.** `GET https://book.princess.com/manage-booking/json/sfccKeepAlive.page`, with headers `bookingcompany: PC` and `productcompany: PC`.
+3. **Establish the current booking.** `GET https://book.princess.com/manage-booking/index.page` with the cookie jar, following redirects (it 302s through `/cruisepersonalizer/summary.page` to `/manage-booking/summary.page`).
+   - This navigation sets the server session's current booking (`pcl_voyageId` / `pcl_shipCode` cookies); without it, `sfccKeepAlive` returns no `bookingInfo`.
+4. **Current booking context.** `GET https://book.princess.com/manage-booking/json/sfccKeepAlive.page`, with headers `bookingcompany: PC` and `productcompany: PC`.
    - Returns `data.bookingInfo {bookingId, shipCode, voyageId, paxId, durationDays, departureDate ("Weekday, Month DD, YYYY" text), bookingCurrency, agencyId, bookCompany}`.
    - Also returns `data.tokenObj.appToken` (30 min).
    - `manage-booking/json/keepAlive.page` refreshes `appToken`.
-4. **Gateway booking APIs.** Use headers `authtoken: <appToken>` and `appid: {"cruiseLineCode":"PCL","sessionId":"Unique Token","systemId":"PB","agencyId":"<agencyId>","bookNum":"<bookingId>"}`:
+5. **Gateway booking APIs.** Use headers `authtoken: <appToken>` and `appid: {"cruiseLineCode":"PCL","sessionId":"Unique Token","systemId":"PB","agencyId":"<agencyId>","bookNum":"<bookingId>"}`:
    - `GET …/cpmf/v1.0/booking/display/menu` returns `nav-menu {bookingId, shipCode, shipName, voyageCode, loyaltyLevel, itineraryName, daysToVoyage, durationDays, paxId}`.
    - `GET …/cpmf/v1.0/booking/summary` returns the full booking:
      - `paxList.paxes[] {seqNumber, pastPaxStatusName (tier), ageCode, …}` plus heavy PII (don't persist);

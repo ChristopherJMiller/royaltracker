@@ -1,5 +1,5 @@
 //! Princess account client: guest-site login and current-booking context
-//! (spec §9.1 steps 1-3). One login attempt per call, never retried. The
+//! (spec §9.1 steps 1-4). One login attempt per call, never retried. The
 //! `booking/display/menu` tier call is deliberately not made (prices are
 //! tier-agnostic, spec §5.4).
 
@@ -15,6 +15,8 @@ const WWW_HOST: &str = "www.princess.com";
 const ORIGIN: &str = "https://www.princess.com";
 const LOGIN_URL: &str = "https://gw.api.princess.com/pcl-web/internal/guest/p1.0/login";
 const QUICK_LOGIN_URL: &str = "https://book.princess.com/captaincircle/quickLogin.do";
+const MANAGE_BOOKING_URL: &str = "https://book.princess.com/manage-booking/index.page";
+const MAX_REDIRECTS: usize = 5;
 const KEEP_ALIVE_URL: &str = "https://book.princess.com/manage-booking/json/sfccKeepAlive.page";
 const ERROR_BODY_MAX: usize = 200;
 
@@ -117,6 +119,20 @@ impl PrincessAccountClient {
             .header("Accept", "*/*")
             .header("Origin", ORIGIN)
             .header("Referer", "https://www.princess.com/")
+            .send()
+            .await?;
+        check_ok(resp).await?;
+
+        // Loading the booking site's landing page (302 -> summary.page) is what
+        // sets the session's "current booking"; without it sfccKeepAlive has no
+        // bookingInfo.
+        let resp = self
+            .http
+            .get(MANAGE_BOOKING_URL)
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Referer", "https://www.princess.com/")
+            .redirect(wreq::redirect::Policy::limited(MAX_REDIRECTS))
             .send()
             .await?;
         check_ok(resp).await?;
