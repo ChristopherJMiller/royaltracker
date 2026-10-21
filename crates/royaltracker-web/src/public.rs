@@ -194,6 +194,32 @@ async fn princess_schedule(s: &PublicState) -> Result<Vec<PrincessVoyage>, ApiEr
     }
 }
 
+/// The schedule entry for exactly this voyage + ship + date, if any.
+fn find_voyage<'a>(
+    schedule: &'a [PrincessVoyage],
+    ship: &str,
+    date: NaiveDate,
+    voyage: &str,
+) -> Option<&'a PrincessVoyage> {
+    schedule
+        .iter()
+        .find(|v| v.voyage_code == voyage && v.ship_code.eq_ignore_ascii_case(ship) && v.sail_date == date)
+}
+
+/// Validate a client-supplied Princess voyage against the cached schedule
+/// (fail closed: 502 if the schedule is unavailable, 404 if no match).
+async fn resolve_princess_voyage(
+    s: &PublicState,
+    ship: &str,
+    sail_date: NaiveDate,
+    voyage: &str,
+) -> Result<PrincessVoyage, ApiErr> {
+    let sched = princess_schedule(s).await?;
+    find_voyage(&sched, ship, sail_date, voyage)
+        .cloned()
+        .ok_or((StatusCode::NOT_FOUND, "unknown voyage".into()))
+}
+
 /// Upcoming voyages of one Princess ship from a schedule (already sorted).
 fn princess_options(schedule: &[PrincessVoyage], ship: &str, today: NaiveDate) -> Vec<SailingOption> {
     schedule
@@ -251,6 +277,16 @@ mod tests {
             itinerary: "Caribbean".into(),
             currency: "USD".into(),
         }
+    }
+
+    #[test]
+    fn find_voyage_matches_code_ship_and_date() {
+        let s = vec![v("4702A", "ST", (2027, 1, 2))];
+        let d = NaiveDate::from_ymd_opt(2027, 1, 2).unwrap();
+        assert!(find_voyage(&s, "ST", d, "4702A").is_some());
+        assert!(find_voyage(&s, "RU", d, "4702A").is_none());
+        assert!(find_voyage(&s, "ST", NaiveDate::from_ymd_opt(2027, 1, 3).unwrap(), "4702A").is_none());
+        assert!(find_voyage(&s, "ST", d, "NOPE").is_none());
     }
 
     #[test]
@@ -323,12 +359,7 @@ async fn prices(
     // Cache miss or stale → live fetch + seed.
     let (fetch, currency) = match voyage {
         Some(v) => {
-            let currency = princess_schedule(&s)
-                .await?
-                .iter()
-                .find(|x| x.voyage_code == v)
-                .map(|x| x.currency.clone())
-                .unwrap_or_else(|| "USD".to_string());
+            let currency = resolve_princess_voyage(&s, &q.ship, date, v).await?.currency;
             let mut cache = royaltracker_core::PrincessPriceCache::default();
             let r = cache
                 .products(&s.princess, v, &currency)
@@ -513,14 +544,7 @@ async fn subscribe(
 
     // Seed the sailing + tracked product so the sweep keeps it fresh.
     let currency = match voyage {
-        Some(v) => Some(
-            princess_schedule(&s)
-                .await?
-                .iter()
-                .find(|x| x.voyage_code == v)
-                .map(|x| x.currency.clone())
-                .unwrap_or_else(|| "USD".to_string()),
-        ),
+        Some(v) => Some(resolve_princess_voyage(&s, &body.ship, date, v).await?.currency),
         None => None,
     };
     let sailing_id = s
