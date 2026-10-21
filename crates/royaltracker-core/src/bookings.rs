@@ -4,6 +4,7 @@ use royaltracker_storage::{PriceRepo, StorageError};
 use royaltracker_notify::{NotifyTarget, Notifier, TextAlert};
 use royaltracker_types::{Booking, Brand, CruiseAccount, CruiseLine, User};
 use std::collections::HashMap;
+use crate::princess::{discover_princess, PRINCESS_NO_BOOKING_MSG};
 use tracing::{info, warn};
 
 /// Result of discovering one cruise account's bookings.
@@ -16,6 +17,9 @@ pub struct AccountDiscovery {
 /// Outcome recorded against an account: `None` when at least one login
 /// succeeded, otherwise the joined errors.
 pub(crate) fn login_outcome(report: &DiscoveryReport) -> Option<String> {
+    if report.errors.iter().any(|e| e == PRINCESS_NO_BOOKING_MSG) {
+        return Some(PRINCESS_NO_BOOKING_MSG.to_string());
+    }
     if report.logins_ok > 0 {
         None
     } else if report.errors.is_empty() {
@@ -49,7 +53,9 @@ pub async fn discover_account(
             .await
             .map(|(report, rcg_clients)| AccountDiscovery { report, rcg_clients })
         }
-        CruiseLine::Princess => Err(anyhow::anyhow!("Princess support is not enabled yet")),
+        CruiseLine::Princess => discover_princess(repo, user, account, password)
+            .await
+            .map(|report| AccountDiscovery { report, rcg_clients: HashMap::new() }),
     };
     let outcome = match &result {
         Ok(d) => login_outcome(&d.report),
