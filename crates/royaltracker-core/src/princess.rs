@@ -2,7 +2,7 @@
 
 use crate::bookings::DiscoveryReport;
 use royaltracker_api::princess::{PrincessAccountClient, PrincessBookingContext, PrincessGuestClient};
-use royaltracker_api::{ApiError, PublicProduct};
+use royaltracker_api::{ApiError, PublicFetch, PublicProduct};
 use std::collections::HashMap;
 use royaltracker_storage::{PriceRepo, SailingKey};
 use royaltracker_types::{Booking, Brand, CruiseAccount, User};
@@ -170,6 +170,16 @@ impl PrincessPriceCache {
     }
 }
 
+/// Map a Princess product map to the shared fetch outcome. An empty catalog is
+/// "nothing to record" (never a $0 price, never a failure).
+pub fn princess_fetch_outcome(products: HashMap<String, PublicProduct>) -> PublicFetch {
+    if products.is_empty() {
+        PublicFetch::PlannerNotOpen
+    } else {
+        PublicFetch::Products(products.into_values().collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +200,18 @@ mod tests {
             unit_label: None,
             child_cents: None,
         }
+    }
+
+    #[test]
+    fn princess_empty_catalog_is_planner_not_open() {
+        assert!(matches!(princess_fetch_outcome(HashMap::new()), PublicFetch::PlannerNotOpen));
+    }
+
+    #[test]
+    fn princess_nonempty_is_products() {
+        let mut m = HashMap::new();
+        m.insert("2323".to_string(), prod("2323"));
+        assert!(matches!(princess_fetch_outcome(m), PublicFetch::Products(v) if v.len() == 1));
     }
 
     #[test]

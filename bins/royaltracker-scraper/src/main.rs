@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
             let sweep_cfg = PublicSweepConfig {
                 window: Duration::from_secs(cfg.public_sweep_window_minutes * 60),
             };
-            let o = run_public_sweep(&public_client, &repo as &dyn PriceRepo, &dispatcher, &sweep_cfg).await;
+            let o = run_public_sweep(&public_client, princess_client.as_ref(), &repo as &dyn PriceRepo, &dispatcher, &sweep_cfg).await;
             info!(
                 sailings = o.sailings_fetched,
                 prices = o.prices_recorded,

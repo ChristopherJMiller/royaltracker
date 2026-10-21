@@ -115,6 +115,15 @@ fn db_err(e: impl std::fmt::Display) -> ApiErr {
     (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}"))
 }
 
+/// Princess sailings are keyed by voyage code (ship + date isn't unique).
+fn require_voyage(brand: Brand, voyage: Option<&str>) -> Result<Option<&str>, ApiErr> {
+    let voyage = voyage.map(str::trim).filter(|v| !v.is_empty());
+    if brand == Brand::Princess && voyage.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "voyage required for princess".into()));
+    }
+    Ok(if brand == Brand::Princess { voyage } else { None })
+}
+
 #[derive(Serialize)]
 struct ShipItem {
     brand: String,
@@ -245,6 +254,13 @@ mod tests {
     }
 
     #[test]
+    fn princess_prices_require_voyage() {
+        assert!(require_voyage(Brand::Princess, None).is_err());
+        assert!(require_voyage(Brand::Royal, None).is_ok());
+        assert_eq!(require_voyage(Brand::Princess, Some("4702A")).unwrap(), Some("4702A"));
+    }
+
+    #[test]
     fn princess_options_filter_ship_and_past_keep_combos() {
         let s = vec![
             v("A1", "ST", (2020, 1, 1)),
@@ -267,6 +283,9 @@ struct PricesQuery {
     brand: String,
     ship: String,
     sail_date: String,
+    /// Required for Princess (voyage code); ignored for Royal/Celebrity.
+    #[serde(default)]
+    voyage: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -284,12 +303,10 @@ async fn prices(
 ) -> Result<Json<PricesResponse>, ApiErr> {
     let brand = parse_brand(&q.brand)?;
     let date = parse_date(&q.sail_date)?;
+    let voyage = require_voyage(brand, q.voyage.as_deref())?;
+    let key = SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: voyage };
 
-    let cached = s
-        .repo
-        .latest_sailing_prices(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None })
-        .await
-        .map_err(db_err)?;
+    let cached = s.repo.latest_sailing_prices(&key).await.map_err(db_err)?;
     let cutoff = Utc::now() - Duration::hours(FRESH_HOURS);
     let is_fresh = !cached.is_empty()
         && cached
@@ -304,13 +321,26 @@ async fn prices(
     }
 
     // Cache miss or stale → live fetch + seed.
-    match s
-        .public_client
-        .fetch_public_products(brand, &q.ship, date)
-        .await
-    {
+    let (fetch, currency) = match voyage {
+        Some(v) => {
+            let currency = princess_schedule(&s)
+                .await?
+                .iter()
+                .find(|x| x.voyage_code == v)
+                .map(|x| x.currency.clone())
+                .unwrap_or_else(|| "USD".to_string());
+            let mut cache = royaltracker_core::PrincessPriceCache::default();
+            let r = cache
+                .products(&s.princess, v, &currency)
+                .await
+                .map(royaltracker_core::princess_fetch_outcome);
+            (r, Some(currency))
+        }
+        None => (s.public_client.fetch_public_products(brand, &q.ship, date).await, None),
+    };
+    match fetch {
         Ok(PublicFetch::Products(products)) => {
-            let sailing_id = s.repo.upsert_sailing(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None }, None).await.map_err(db_err)?;
+            let sailing_id = s.repo.upsert_sailing(&key, currency.as_deref()).await.map_err(db_err)?;
             for p in &products {
                 let tracked_id = s
                     .repo
@@ -327,7 +357,7 @@ async fn prices(
                     tracked_id,
                     fetched_at: Utc::now(),
                     adult_promo_price: p.promo_dollars(),
-                    child_promo_price: None,
+                    child_promo_price: p.child_cents.map(|c| c as f64 / 100.0),
                     base_price: p.base_dollars(),
                     promo_present: p.promo_cents.is_some(),
                     raw_response: serde_json::to_value(p).unwrap_or(serde_json::Value::Null),
@@ -336,11 +366,7 @@ async fn prices(
                     tracing::warn!(error = %e, "record_public_price (lookup seed) failed");
                 }
             }
-            let fresh = s
-                .repo
-                .latest_sailing_prices(&SailingKey { brand, ship_code: &q.ship, sail_date: date, voyage_code: None })
-                .await
-                .map_err(db_err)?;
+            let fresh = s.repo.latest_sailing_prices(&key).await.map_err(db_err)?;
             Ok(Json(PricesResponse {
                 planner_open: true,
                 live: true,
@@ -392,6 +418,9 @@ struct SubscribeReq {
     ship: String,
     sail_date: String,
     product_code: String,
+    /// Required for Princess (voyage code).
+    #[serde(default)]
+    voyage: Option<String>,
     #[serde(default)]
     category: Option<String>,
     #[serde(default)]
@@ -437,6 +466,7 @@ async fn subscribe(
 
     let brand = parse_brand(&body.brand)?;
     let date = parse_date(&body.sail_date)?;
+    let voyage = require_voyage(brand, body.voyage.as_deref())?;
     let kind = match body.channel.as_str() {
         "webpush" => PublicChannelKind::WebPush,
         "email" => {
@@ -482,7 +512,25 @@ async fn subscribe(
     };
 
     // Seed the sailing + tracked product so the sweep keeps it fresh.
-    let sailing_id = s.repo.upsert_sailing(&SailingKey { brand, ship_code: &body.ship, sail_date: date, voyage_code: None }, None).await.map_err(db_err)?;
+    let currency = match voyage {
+        Some(v) => Some(
+            princess_schedule(&s)
+                .await?
+                .iter()
+                .find(|x| x.voyage_code == v)
+                .map(|x| x.currency.clone())
+                .unwrap_or_else(|| "USD".to_string()),
+        ),
+        None => None,
+    };
+    let sailing_id = s
+        .repo
+        .upsert_sailing(
+            &SailingKey { brand, ship_code: &body.ship, sail_date: date, voyage_code: voyage },
+            currency.as_deref(),
+        )
+        .await
+        .map_err(db_err)?;
     let category = body.category.clone().unwrap_or_default();
     let tracked_id = s
         .repo
