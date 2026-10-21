@@ -14,6 +14,13 @@ fn basic_auth_urlencodes_both_parts() {
 }
 
 #[test]
+fn basic_auth_encodes_space_like_encode_uri_component() {
+    // The site uses encodeURIComponent: space -> %20 (never '+'), literal '+' -> %2B.
+    let expected = base64::engine::general_purpose::STANDARD.encode("a%40b.com:p%20w%2B1");
+    assert_eq!(basic_auth_value("a@b.com", "p w+1"), format!("Basic {expected}"));
+}
+
+#[test]
 fn departure_text_parses() {
     assert_eq!(parse_departure("Saturday, October 24, 2026"), NaiveDate::from_ymd_opt(2026, 10, 24));
 }
@@ -33,4 +40,15 @@ fn keepalive_parses_context() {
 #[test]
 fn keepalive_without_booking_info_is_none() {
     assert!(parse_keep_alive(&fixture("keepalive_no_booking.json")).is_none());
+}
+
+#[test]
+fn keepalive_missing_field_or_bad_date_is_none() {
+    let mut v = fixture("keepalive.json");
+    v["data"]["bookingInfo"].as_object_mut().unwrap().remove("shipCode");
+    assert!(parse_keep_alive(&v).is_none());
+
+    let mut v = fixture("keepalive.json");
+    v["data"]["bookingInfo"]["departureDate"] = serde_json::json!("2026-10-24");
+    assert!(parse_keep_alive(&v).is_none());
 }
