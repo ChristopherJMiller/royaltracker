@@ -1,4 +1,4 @@
-use crate::princess::PrincessPriceCache;
+use crate::princess::{PrincessExtrasCache, PrincessPriceCache};
 use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::CruiseClient;
 use royaltracker_storage::{CatalogEntry, PriceRepo};
@@ -49,9 +49,11 @@ pub async fn refresh_catalog_for_booking(
 }
 
 /// Refresh the Princess catalog (excursions for the booking's voyage + extras)
-/// via the guest SFCC client. Returns the count of products persisted.
+/// via the guest SFCC client, with extras from the shared TTL'd cache.
+/// Returns the count of products persisted.
 pub async fn refresh_princess_catalog(
     client: &PrincessGuestClient,
+    extras: &PrincessExtrasCache,
     repo: &(dyn PriceRepo),
     booking: &Booking,
 ) -> anyhow::Result<usize> {
@@ -61,7 +63,7 @@ pub async fn refresh_princess_catalog(
         .ok_or_else(|| anyhow::anyhow!("Princess booking has no voyage code"))?;
     let currency = booking.currency.as_deref().unwrap_or("USD");
     let mut cache = PrincessPriceCache::default();
-    let products = cache.products(client, voyage, currency).await?;
+    let products = cache.products_shared(client, extras, voyage, currency).await?;
 
     let mut persisted = 0;
     for (_, p) in products {

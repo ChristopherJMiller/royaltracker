@@ -4,6 +4,8 @@ use crate::bookings::DiscoveryReport;
 use royaltracker_api::princess::{PrincessAccountClient, PrincessBookingContext, PrincessGuestClient};
 use royaltracker_api::{ApiError, PublicFetch, PublicProduct};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use royaltracker_storage::{PriceRepo, SailingKey};
 use royaltracker_types::{Booking, Brand, CruiseAccount, User};
 use tracing::warn;
@@ -168,6 +170,117 @@ impl PrincessPriceCache {
         }
         Some(merge_products(ex.unwrap_or_default(), xt.unwrap_or_default()))
     }
+
+    /// Like [`Self::products`], but the fleet-wide extras come from a shared,
+    /// TTL'd cache (web paths). Excursions are still fetched per call.
+    pub async fn products_shared(
+        &mut self,
+        client: &PrincessGuestClient,
+        extras: &PrincessExtrasCache,
+        voyage_code: &str,
+        currency: &str,
+    ) -> Result<HashMap<String, PublicProduct>, ApiError> {
+        let r = self
+            .products_with(
+                voyage_code,
+                currency,
+                || client.fetch_excursions(voyage_code, currency),
+                || async { extras.get(client, currency).await.map(|v| v.as_ref().clone()) },
+            )
+            .await;
+        r.ok_or_else(|| ApiError::Status { status: 502, body: format!("Princess fetch failed for {voyage_code}/{currency}") })
+    }
+}
+
+/// How long shared fleet-wide extras stay fresh.
+const EXTRAS_TTL: Duration = Duration::from_secs(6 * 3600);
+/// After a failed extras fetch, don't refetch before this.
+const EXTRAS_RETRY_AFTER: Duration = Duration::from_secs(15 * 60);
+
+#[derive(Clone)]
+enum ExtrasEntry {
+    Ok { fetched_at: Instant, products: Arc<Vec<PublicProduct>> },
+    Failed { retry_after: Instant },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ExtrasStep {
+    /// Cached and fresh.
+    Use,
+    /// Absent, expired, or a failure whose retry-after has passed.
+    Fetch,
+    /// Failed recently: error without fetching.
+    Blocked,
+}
+
+fn extras_step(entry: Option<&ExtrasEntry>, now: Instant) -> ExtrasStep {
+    match entry {
+        Some(ExtrasEntry::Ok { fetched_at, .. }) if now.saturating_duration_since(*fetched_at) < EXTRAS_TTL => {
+            ExtrasStep::Use
+        }
+        Some(ExtrasEntry::Failed { retry_after }) if now < *retry_after => ExtrasStep::Blocked,
+        _ => ExtrasStep::Fetch,
+    }
+}
+
+type ExtrasSlot = Arc<tokio::sync::Mutex<Option<ExtrasEntry>>>;
+
+/// Fleet-wide Princess extras per currency, shared across web requests and
+/// fresh for 6 h. A failure is remembered only for 15 min. Concurrent callers
+/// for one currency share a single fetch. (The scraper keeps its per-run
+/// [`PrincessPriceCache`].)
+#[derive(Default)]
+pub struct PrincessExtrasCache {
+    slots: std::sync::Mutex<HashMap<String, ExtrasSlot>>,
+}
+
+impl PrincessExtrasCache {
+    fn slot(&self, currency: &str) -> ExtrasSlot {
+        let mut m = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        m.entry(currency.to_string()).or_default().clone()
+    }
+
+    pub async fn get(
+        &self,
+        client: &PrincessGuestClient,
+        currency: &str,
+    ) -> Result<Arc<Vec<PublicProduct>>, ApiError> {
+        self.get_with(currency, || client.fetch_extras(currency)).await
+    }
+
+    pub(crate) async fn get_with<F, Fut>(
+        &self,
+        currency: &str,
+        fetch: F,
+    ) -> Result<Arc<Vec<PublicProduct>>, ApiError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<PublicProduct>, ApiError>>,
+    {
+        let slot = self.slot(currency);
+        let mut entry = slot.lock().await;
+        match (extras_step(entry.as_ref(), Instant::now()), entry.as_ref()) {
+            (ExtrasStep::Use, Some(ExtrasEntry::Ok { products, .. })) => return Ok(products.clone()),
+            (ExtrasStep::Blocked, _) => {
+                return Err(ApiError::Status {
+                    status: 503,
+                    body: format!("Princess extras ({currency}) failed recently; retrying later"),
+                })
+            }
+            _ => {}
+        }
+        match fetch().await {
+            Ok(v) => {
+                let v = Arc::new(v);
+                *entry = Some(ExtrasEntry::Ok { fetched_at: Instant::now(), products: v.clone() });
+                Ok(v)
+            }
+            Err(e) => {
+                *entry = Some(ExtrasEntry::Failed { retry_after: Instant::now() + EXTRAS_RETRY_AFTER });
+                Err(e)
+            }
+        }
+    }
 }
 
 /// Map a Princess product map to the shared fetch outcome. An empty catalog is
@@ -277,6 +390,51 @@ mod tests {
             assert!(r.is_none());
         }
         assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn extras_step_ttl_and_failure_backoff() {
+        let now = Instant::now() + Duration::from_secs(100 * 3600);
+        let ok = |age: Duration| ExtrasEntry::Ok { fetched_at: now - age, products: Arc::new(vec![]) };
+        assert_eq!(extras_step(None, now), ExtrasStep::Fetch);
+        assert_eq!(extras_step(Some(&ok(Duration::from_secs(3600))), now), ExtrasStep::Use);
+        assert_eq!(extras_step(Some(&ok(EXTRAS_TTL + Duration::from_secs(1))), now), ExtrasStep::Fetch);
+        let failed = |retry_after| ExtrasEntry::Failed { retry_after };
+        assert_eq!(extras_step(Some(&failed(now + Duration::from_secs(60))), now), ExtrasStep::Blocked);
+        assert_eq!(extras_step(Some(&failed(now - Duration::from_secs(1))), now), ExtrasStep::Fetch);
+    }
+
+    #[tokio::test]
+    async fn shared_extras_fetched_once_and_failure_not_refetched() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let cache = PrincessExtrasCache::default();
+        for _ in 0..3 {
+            let v = cache
+                .get_with("USD", || async {
+                    calls.set(calls.get() + 1);
+                    Ok(vec![prod("2323")])
+                })
+                .await
+                .unwrap();
+            assert_eq!(v.len(), 1);
+        }
+        assert_eq!(calls.get(), 1);
+
+        // A failure is remembered (no refetch inside the retry-after window),
+        // and is per currency.
+        let fails = Cell::new(0);
+        for _ in 0..3 {
+            let r = cache
+                .get_with("AUD", || async {
+                    fails.set(fails.get() + 1);
+                    Err(ApiError::Status { status: 500, body: String::new() })
+                })
+                .await;
+            assert!(r.is_err());
+        }
+        assert_eq!(fails.get(), 1);
+        assert!(cache.get_with("USD", || async { unreachable!() }).await.is_ok());
     }
 
     fn ctx() -> PrincessBookingContext {

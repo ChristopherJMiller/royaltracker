@@ -9,4 +9,6 @@ pub struct AppState {
     pub bot_token: Arc<String>,
     pub rcg_basic_auth_b64: Arc<String>,
     pub princess: Arc<royaltracker_api::princess::PrincessGuestClient>,
+    /// Fleet-wide Princess extras, shared with the public tier (6 h TTL).
+    pub princess_extras: Arc<royaltracker_core::PrincessExtrasCache>,
 }
