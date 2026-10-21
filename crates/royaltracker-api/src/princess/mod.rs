@@ -31,6 +31,9 @@ const SCHEDULE_URL: &str = "https://gw.api.princess.com/pcl-web/internal/resdb/p
 const BASE: &str = "https://www.princess.com/mobify";
 const ORIGIN: &str = "https://www.princess.com";
 const PAGE_LIMIT: usize = 200;
+/// Hard stop for one search's pagination (20 × 200 hits), in case `total`
+/// is wrong or the server keeps returning full pages.
+const MAX_SEARCH_PAGES: usize = 20;
 const DETAIL_BATCH: usize = 24;
 /// Refresh the token this long before it expires.
 const TOKEN_SKEW: Duration = Duration::from_secs(60);
@@ -136,7 +139,11 @@ impl PrincessGuestClient {
     ) -> Result<Vec<PublicProduct>, ApiError> {
         let mut out = Vec::new();
         let mut offset = 0usize;
-        loop {
+        for page_no in 0.. {
+            if page_no == MAX_SEARCH_PAGES {
+                tracing::warn!(category_id, offset, max_pages = MAX_SEARCH_PAGES, "princess search hit max pages; stopping");
+                break;
+            }
             let mut params: Vec<(&str, String)> = vec![
                 ("siteId", SFCC_SITE.into()),
                 ("currency", currency.into()),

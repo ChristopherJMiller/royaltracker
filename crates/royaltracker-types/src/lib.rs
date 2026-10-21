@@ -147,8 +147,9 @@ pub struct User {
     pub active: bool,
 }
 
-/// One set of cruise-line credentials belonging to a user.
-#[derive(Clone, Serialize, Deserialize)]
+/// One set of cruise-line credentials belonging to a user. Deliberately not
+/// `Serialize`: it carries the encrypted password (use a DTO for output).
+#[derive(Clone)]
 pub struct CruiseAccount {
     pub id: i64,
     pub user_id: i64,
