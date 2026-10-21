@@ -116,11 +116,24 @@ async fn main() -> Result<()> {
     }
 
     // axum server (Mini App) — runs alongside the poller in the same tokio runtime.
+    let princess = Arc::new(
+        royaltracker_api::princess::PrincessGuestClient::new(PacingConfig::from_millis(
+            cfg.pacing.min_interval_ms,
+            cfg.pacing.jitter_lo_ms,
+            cfg.pacing.jitter_hi_ms,
+            cfg.pacing.max_retries,
+            cfg.pacing.base_backoff_ms,
+            cfg.pacing.max_backoff_ms,
+            cfg.pacing.cooldown_after_challenge_ms,
+        ))
+        .context("princess guest client")?,
+    );
     let web_state = royaltracker_web::AppState {
         repo: repo.clone(),
         cipher: cipher.clone(),
         bot_token: Arc::new(cfg.telegram.bot_token.clone()),
         rcg_basic_auth_b64: Arc::new(cfg.rcg_basic_auth_b64.clone()),
+        princess,
     };
     let web_addr: std::net::SocketAddr = cfg
         .web

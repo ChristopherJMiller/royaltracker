@@ -284,7 +284,11 @@ pub async fn refresh_catalog(
         .ok_or((StatusCode::NOT_FOUND, "booking not found".into()))?;
 
     if booking.brand == Brand::Princess {
-        return Err((StatusCode::NOT_IMPLEMENTED, "catalog not available for Princess yet".into()));
+        let persisted =
+            royaltracker_core::refresh_princess_catalog(s.princess.as_ref(), s.repo.as_ref(), &booking)
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("catalog: {e}")))?;
+        return Ok(Json(CatalogRefreshResponse { products_persisted: persisted }));
     }
     // GraphQL endpoint is anonymous (appkey only), so we don't need the user's
     // credentials at all. Build a client with the booking's brand.

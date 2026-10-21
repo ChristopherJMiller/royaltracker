@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{
     CruiseClient, PacingConfig, PublicClient, PublicClientConfig, DEFAULT_USER_AGENT,
 };
@@ -54,6 +55,14 @@ async fn main() -> Result<()> {
             Err(e) => warn!(error = %e, "web push disabled: bad VAPID key"),
         }
     }
+
+    let princess_client = match PrincessGuestClient::new(pacing(&cfg.pacing)) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            warn!(error = %e, "could not build Princess client; Princess prices skipped");
+            None
+        }
+    };
 
     // Phase P (always runs): the public no-login sweep. Fetches each distinct
     // tracked sailing's public promo prices once and fans out to subscribers.
@@ -134,6 +143,7 @@ async fn main() -> Result<()> {
 
     let outcome = run_scrape_cycle(
         &clients_by_brand,
+        princess_client.as_ref(),
         &repo as &dyn PriceRepo,
         &dispatcher,
         &watched,

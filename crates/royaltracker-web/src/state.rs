@@ -8,4 +8,5 @@ pub struct AppState {
     pub cipher: Arc<Cipher>,
     pub bot_token: Arc<String>,
     pub rcg_basic_auth_b64: Arc<String>,
+    pub princess: Arc<royaltracker_api::princess::PrincessGuestClient>,
 }
