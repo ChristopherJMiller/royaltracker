@@ -197,7 +197,7 @@ pub async fn run_scrape_cycle(
 /// recovered GTY cabin when we have one, otherwise the displayed stateroom
 /// (rendered as "GTY" while unassigned).
 fn itinerary_label(b: &Booking) -> String {
-    let ship = royaltracker_types::ship_name(&b.ship_code).unwrap_or(b.ship_code.as_str());
+    let ship = royaltracker_types::ship_name(b.brand, &b.ship_code).unwrap_or(b.ship_code.as_str());
     let mut s = ship.to_string();
     if let Some(n) = b.nights {
         s.push_str(&format!(" · {n} night{}", if n == 1 { "" } else { "s" }));

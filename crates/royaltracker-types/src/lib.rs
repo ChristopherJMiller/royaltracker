@@ -148,7 +148,7 @@ pub struct User {
 }
 
 /// One set of cruise-line credentials belonging to a user.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CruiseAccount {
     pub id: i64,
     pub user_id: i64,
@@ -159,6 +159,24 @@ pub struct CruiseAccount {
     pub active: bool,
     pub last_login_at: Option<DateTime<Utc>>,
     pub last_login_error: Option<String>,
+}
+
+// Manual Debug so an account is never able to leak its encrypted password
+// (or nonce) into logs.
+impl std::fmt::Debug for CruiseAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CruiseAccount")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("line", &self.line)
+            .field("login", &self.login)
+            .field("password_ct", &"<redacted>")
+            .field("password_nonce", &"<redacted>")
+            .field("active", &self.active)
+            .field("last_login_at", &self.last_login_at)
+            .field("last_login_error", &self.last_login_error)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -715,5 +733,26 @@ mod tests {
         assert_eq!(format_money(24.99, None), "$24.99");
         assert_eq!(format_money(24.99, Some("USD")), "$24.99");
         assert_eq!(format_money(24.94, Some("AUD")), "AUD 24.94");
+    }
+
+    #[test]
+    fn cruise_account_debug_redacts_secrets() {
+        let a = CruiseAccount {
+            id: 7,
+            user_id: 1,
+            line: CruiseLine::Rcg,
+            login: "me@example.com".into(),
+            password_ct: vec![0xDE, 0xAD, 0xBE, 0xEF, 211, 199],
+            password_nonce: vec![0xCA, 0xFE, 0xBA, 0xBE, 187, 173],
+            active: true,
+            last_login_at: None,
+            last_login_error: None,
+        };
+        let s = format!("{a:?}");
+        assert!(s.contains("<redacted>"));
+        assert!(s.contains("me@example.com"));
+        for needle in ["222", "173", "202", "254", "187", "211", "199", "190", "239"] {
+            assert!(!s.contains(needle), "leaked byte {needle}: {s}");
+        }
     }
 }

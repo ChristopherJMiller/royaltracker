@@ -4,13 +4,13 @@ use royaltracker_api::{
 };
 use royaltracker_config::{Config, PacingSettings};
 use royaltracker_core::{
-    discover_with_clients, run_public_sweep, run_scrape_cycle, sleep_with_jitter, PublicSweepConfig,
+    discover_account, run_public_sweep, run_scrape_cycle, sleep_with_jitter, PublicSweepConfig,
 };
 use royaltracker_crypto::Cipher;
 use royaltracker_notify::{Dispatcher, Notifier, WebPushChannel};
-use royaltracker_storage::{connect, DefaultRepo, PriceRepo};
+use royaltracker_storage::{connect, ActiveAccount, DefaultRepo, PriceRepo};
 use royaltracker_telegram::bot;
-use royaltracker_types::{Booking, Brand, User};
+use royaltracker_types::{Booking, Brand};
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -78,30 +78,32 @@ async fn main() -> Result<()> {
         Err(e) => warn!(error = %e, "could not build public client; skipping public sweep"),
     }
 
-    // Phase A: per-user discovery. Each user must log in with their own
-    // credentials to enumerate *their* bookings. We collect one authenticated
-    // client per brand along the way; whichever user logged in first wins.
-    let users = repo.list_active_users().await.context("list users")?;
-    info!(count = users.len(), "users to scrape");
-    if users.is_empty() {
-        info!("no authed users; public-only run complete");
+    // Phase A: per-account discovery. Each cruise account must log in with its
+    // own credentials to enumerate *its* bookings. We collect one authenticated
+    // RCG client per brand along the way; whichever account logged in first wins.
+    let accounts = repo
+        .list_active_cruise_accounts()
+        .await
+        .context("list cruise accounts")?;
+    info!(count = accounts.len(), "cruise accounts to scrape");
+    if accounts.is_empty() {
+        info!("no active accounts; public-only run complete");
         return Ok(());
     }
 
     let mut clients_by_brand: HashMap<Brand, CruiseClient> = HashMap::new();
-    for user in &users {
-        let label = user.rcg_username.clone();
-        match discover_for_user(&repo, &cipher, &dispatcher, &cfg.rcg_basic_auth_b64, user).await {
-            Ok(user_clients) => {
-                for (brand, client) in user_clients {
+    for active in &accounts {
+        match discover_for_account(&repo, &cipher, &dispatcher, &cfg.rcg_basic_auth_b64, active).await {
+            Ok(rcg_clients) => {
+                for (brand, client) in rcg_clients {
                     clients_by_brand.entry(brand).or_insert(client);
                 }
             }
             Err(e) => {
-                warn!(user = %label, error = %e, "user discovery failed");
+                warn!(account = active.account.id, error = %e, "account discovery failed");
                 let _ = royaltracker_telegram::send_text(
                     &bot,
-                    user.telegram_chat_id,
+                    active.user.telegram_chat_id,
                     format!("⚠️ Today's price check failed: {e}"),
                 )
                 .await;
@@ -151,35 +153,35 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn discover_for_user(
+async fn discover_for_account(
     repo: &DefaultRepo,
     cipher: &Cipher,
     notifier: &dyn Notifier,
     basic_auth_b64: &str,
-    user: &User,
+    active: &ActiveAccount,
 ) -> anyhow::Result<HashMap<Brand, CruiseClient>> {
-    let password_bytes = cipher.decrypt(&user.rcg_password_nonce, &user.rcg_password_ct)?;
+    let password_bytes = cipher.decrypt(&active.account.password_nonce, &active.account.password_ct)?;
     let password = String::from_utf8(password_bytes)?;
 
     // Pass the notifier so cabin assignments/reassignments detected during
     // discovery are pushed to the reservation's subscribers.
-    let (report, clients) = discover_with_clients(
-        &user.rcg_username,
-        &password,
-        basic_auth_b64,
+    let d = discover_account(
         repo as &dyn PriceRepo,
-        user,
+        basic_auth_b64,
+        &active.user,
+        &active.account,
+        &password,
         Some(notifier),
     )
     .await?;
 
     info!(
-        user = %user.rcg_username,
-        persisted = report.persisted,
-        logins_ok = report.logins_ok,
-        brands_authenticated = clients.len(),
+        account = active.account.id,
+        persisted = d.report.persisted,
+        logins_ok = d.report.logins_ok,
+        brands_authenticated = d.rcg_clients.len(),
         "bookings discovered+persisted"
     );
 
-    Ok(clients)
+    Ok(d.rcg_clients)
 }
