@@ -53,8 +53,8 @@ enum DialogueState {
     AwaitingPassword { line: CruiseLine, login: String },
 }
 
-/// Cruise lines offered for linking. Part A exposes RCG only; Task 12 adds Princess.
-const ENABLED_LINES: &[CruiseLine] = &[CruiseLine::Rcg];
+/// Cruise lines offered for linking.
+const ENABLED_LINES: &[CruiseLine] = &[CruiseLine::Rcg, CruiseLine::Princess];
 
 fn line_keyboard(lines: &[CruiseLine]) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(
@@ -593,7 +593,13 @@ async fn test_login(
             let token = api.login().await?;
             Ok(token.account_id)
         }
-        CruiseLine::Princess => anyhow::bail!("Princess login is not enabled yet"),
+        CruiseLine::Princess => {
+            let client = royaltracker_api::princess::PrincessAccountClient::new()?;
+            match client.login_and_context(login, password).await? {
+                Some(ctx) => Ok(ctx.ship_code),
+                None => anyhow::bail!(royaltracker_core::PRINCESS_NO_BOOKING_MSG),
+            }
+        }
     }
 }
 
@@ -604,10 +610,11 @@ mod tests {
 
     #[test]
     fn line_keyboard_uses_enabled_lines() {
-        let kb = line_keyboard(&[CruiseLine::Rcg]);
+        let kb = line_keyboard(ENABLED_LINES);
         let json = serde_json::to_string(&kb).unwrap();
         assert!(json.contains("line:rcg"));
-        assert!(!json.contains("line:princess"));
+        assert!(json.contains("line:princess"));
         assert!(json.contains("Royal Caribbean & Celebrity"));
+        assert!(json.contains("Princess"));
     }
 }

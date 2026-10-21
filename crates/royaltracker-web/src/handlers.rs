@@ -144,27 +144,7 @@ pub async fn register(
     .report;
 
     let login_ok = report.logins_ok > 0;
-    let message = if login_ok && report.errors.is_empty() {
-        format!(
-            "Linked. Discovered {n} booking{plural} across {brands} brand{bplural}.",
-            n = report.persisted,
-            plural = if report.persisted == 1 { "" } else { "s" },
-            brands = report.logins_ok,
-            bplural = if report.logins_ok == 1 { "" } else { "s" },
-        )
-    } else if login_ok {
-        format!(
-            "Linked partially. {n} bookings persisted; some brands errored: {errs}",
-            n = report.persisted,
-            errs = report.errors.join("; "),
-        )
-    } else {
-        format!(
-            "Credentials saved, but no login succeeded: {errs}. \
-             Re-register to overwrite, or wait if rate-limited.",
-            errs = report.errors.join("; "),
-        )
-    };
+    let message = register_message(body.cruise_line, report.persisted, report.logins_ok, &report.errors);
 
     Ok(Json(RegisterResponse {
         login_ok,
@@ -800,6 +780,36 @@ pub async fn deck_plan(
     }))
 }
 
+/// User-facing message for a completed register/discovery run.
+fn register_message(line: CruiseLine, persisted: usize, logins_ok: usize, errors: &[String]) -> String {
+    let plural = if persisted == 1 { "" } else { "s" };
+    if line == CruiseLine::Princess {
+        if errors.iter().any(|e| e == royaltracker_core::PRINCESS_NO_BOOKING_MSG) {
+            return royaltracker_core::PRINCESS_NO_BOOKING_MSG.to_string();
+        }
+        if logins_ok > 0 && errors.is_empty() {
+            return format!("Linked. Discovered {persisted} booking{plural}.");
+        }
+    } else if logins_ok > 0 && errors.is_empty() {
+        return format!(
+            "Linked. Discovered {persisted} booking{plural} across {logins_ok} brand{}.",
+            if logins_ok == 1 { "" } else { "s" },
+        );
+    }
+    if logins_ok > 0 {
+        format!(
+            "Linked partially. {persisted} bookings persisted; some brands errored: {}",
+            errors.join("; "),
+        )
+    } else {
+        format!(
+            "Credentials saved, but no login succeeded: {}. \
+             Re-register to overwrite, or wait if rate-limited.",
+            errors.join("; "),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,6 +827,18 @@ mod tests {
             last_login_at: None,
             last_login_error: None,
         }
+    }
+
+    #[test]
+    fn register_message_per_line() {
+        let m = |l, p, ok, e: &[&str]| register_message(l, p, ok, &e.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(m(CruiseLine::Rcg, 2, 2, &[]), "Linked. Discovered 2 bookings across 2 brands.");
+        assert_eq!(m(CruiseLine::Princess, 1, 1, &[]), "Linked. Discovered 1 booking.");
+        assert_eq!(
+            m(CruiseLine::Princess, 0, 1, &[royaltracker_core::PRINCESS_NO_BOOKING_MSG]),
+            royaltracker_core::PRINCESS_NO_BOOKING_MSG
+        );
+        assert!(m(CruiseLine::Princess, 0, 0, &["bad"]).starts_with("Credentials saved"));
     }
 
     #[test]
