@@ -24,6 +24,8 @@ pub enum StorageError {
     Serde(#[from] serde_json::Error),
     #[error("not found")]
     NotFound,
+    #[error("foreign key check failed after migrations: {0} violation(s)")]
+    ForeignKeyCheck(usize),
 }
 
 #[async_trait]
