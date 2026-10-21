@@ -12,6 +12,7 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{Duration, NaiveDate, Utc};
+use royaltracker_api::princess::{PrincessGuestClient, PrincessVoyage};
 use royaltracker_api::{PublicClient, PublicFetch};
 use royaltracker_storage::{
     DefaultRepo, NewPublicChannel, PriceRepo, PublicPriceDto, SailingKey, SailingSnapshot,
@@ -65,12 +66,21 @@ impl PublicIdentity {
     }
 }
 
+/// Cached Princess schedule with the time it was fetched.
+pub type ScheduleCache = Arc<tokio::sync::RwLock<Option<(std::time::Instant, Vec<PrincessVoyage>)>>>;
+
+const SCHEDULE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
 #[derive(Clone)]
 pub struct PublicState {
     pub repo: Arc<DefaultRepo>,
     /// appkey-only client for live seed-on-lookup fetches. Egresses from the
     /// pod's (home) IP, never Cloudflare.
     pub public_client: Arc<PublicClient>,
+    /// Princess guest client (schedule source).
+    pub princess: Arc<PrincessGuestClient>,
+    /// Whole Princess schedule, refreshed at most every 24 h.
+    pub schedule: ScheduleCache,
     /// None → subscribe/manage disabled (read-only lookup still works).
     pub identity: Option<PublicIdentity>,
 }
@@ -132,20 +142,124 @@ struct SailingsQuery {
     ship: String,
 }
 
-/// Bookable sail dates for a ship, fetched live from the public voyages endpoint.
+
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+struct SailingOption {
+    sail_date: String,
+    voyage_code: Option<String>,
+    nights: Option<i32>,
+    itinerary: Option<String>,
+}
+
+/// Current schedule, refetched when absent or older than 24 h. A failed refresh
+/// serves the stale copy if there is one.
+async fn princess_schedule(s: &PublicState) -> Result<Vec<PrincessVoyage>, ApiErr> {
+    {
+        let g = s.schedule.read().await;
+        if let Some((at, v)) = g.as_ref() {
+            if at.elapsed() < SCHEDULE_TTL {
+                return Ok(v.clone());
+            }
+        }
+    }
+    let mut g = s.schedule.write().await;
+    // Another request may have refreshed while we waited for the write lock.
+    if let Some((at, v)) = g.as_ref() {
+        if at.elapsed() < SCHEDULE_TTL {
+            return Ok(v.clone());
+        }
+    }
+    match s.princess.fetch_schedule().await {
+        Ok(v) => {
+            *g = Some((std::time::Instant::now(), v.clone()));
+            Ok(v)
+        }
+        Err(e) => match g.as_ref() {
+            Some((_, v)) => {
+                tracing::warn!(error = %e, "princess schedule refresh failed; serving stale");
+                Ok(v.clone())
+            }
+            None => Err((StatusCode::BAD_GATEWAY, format!("schedule: {e}"))),
+        },
+    }
+}
+
+/// Upcoming voyages of one Princess ship from a schedule (already sorted).
+fn princess_options(schedule: &[PrincessVoyage], ship: &str, today: NaiveDate) -> Vec<SailingOption> {
+    schedule
+        .iter()
+        .filter(|v| v.ship_code == ship && v.sail_date >= today)
+        .map(|v| SailingOption {
+            sail_date: v.sail_date.format("%Y-%m-%d").to_string(),
+            voyage_code: Some(v.voyage_code.clone()),
+            nights: Some(v.nights),
+            itinerary: Some(v.itinerary.clone()),
+        })
+        .collect()
+}
+
+/// Bookable sailings for a ship. Royal/Celebrity: dates from the public voyages
+/// endpoint. Princess: every voyage (ship + date isn't unique) from the cached
+/// public schedule.
 async fn sailings(
     State(s): State<PublicState>,
     Query(q): Query<SailingsQuery>,
-) -> Result<Json<Vec<String>>, ApiErr> {
+) -> Result<Json<Vec<SailingOption>>, ApiErr> {
     let brand = parse_brand(&q.brand)?;
+    if brand == Brand::Princess {
+        let sched = princess_schedule(&s).await?;
+        return Ok(Json(princess_options(&sched, &q.ship, Utc::now().date_naive())));
+    }
     let dates = s
         .public_client
         .fetch_public_sailings(brand, &q.ship)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("voyages: {e}")))?;
     Ok(Json(
-        dates.iter().map(|d| d.format("%Y-%m-%d").to_string()).collect(),
+        dates
+            .iter()
+            .map(|d| SailingOption {
+                sail_date: d.format("%Y-%m-%d").to_string(),
+                voyage_code: None,
+                nights: None,
+                itinerary: None,
+            })
+            .collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(code: &str, ship: &str, d: (i32, u32, u32)) -> PrincessVoyage {
+        PrincessVoyage {
+            voyage_code: code.into(),
+            ship_code: ship.into(),
+            sail_date: NaiveDate::from_ymd_opt(d.0, d.1, d.2).unwrap(),
+            nights: 7,
+            itinerary: "Caribbean".into(),
+            currency: "USD".into(),
+        }
+    }
+
+    #[test]
+    fn princess_options_filter_ship_and_past_keep_combos() {
+        let s = vec![
+            v("A1", "ST", (2020, 1, 1)),
+            v("4702", "ST", (2027, 1, 2)),
+            v("4702A", "ST", (2027, 1, 2)),
+            v("X1", "RU", (2027, 1, 2)),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 10, 21).unwrap();
+        let o = princess_options(&s, "ST", today);
+        assert_eq!(o.len(), 2);
+        assert_eq!(o[0].voyage_code.as_deref(), Some("4702"));
+        assert_eq!(o[1].voyage_code.as_deref(), Some("4702A"));
+        assert_eq!(o[0].sail_date, "2027-01-02");
+        assert_eq!(o[0].nights, Some(7));
+    }
 }
 
 #[derive(Deserialize)]

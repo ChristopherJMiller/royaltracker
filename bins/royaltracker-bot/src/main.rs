@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
         cipher: cipher.clone(),
         bot_token: Arc::new(cfg.telegram.bot_token.clone()),
         rcg_basic_auth_b64: Arc::new(cfg.rcg_basic_auth_b64.clone()),
-        princess,
+        princess: princess.clone(),
     };
     let web_addr: std::net::SocketAddr = cfg
         .web
@@ -205,6 +205,8 @@ async fn main() -> Result<()> {
             let public_state = royaltracker_web::PublicState {
                 repo: public_repo,
                 public_client: Arc::new(public_client),
+                princess: princess.clone(),
+                schedule: Default::default(),
                 identity,
             };
             app_router = app_router.merge(royaltracker_web::public_router(public_state));

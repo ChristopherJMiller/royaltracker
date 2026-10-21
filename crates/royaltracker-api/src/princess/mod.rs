@@ -4,11 +4,13 @@
 
 mod account;
 mod catalog;
+mod schedule;
 
 pub use account::{
     basic_auth_value, parse_departure, parse_keep_alive, PrincessAccountClient, PrincessBookingContext,
 };
 pub use catalog::{apply_product_details, category_name, parse_search_hits};
+pub use schedule::{parse_schedule, PrincessVoyage};
 
 use base64::Engine;
 use std::time::{Duration, Instant};
@@ -25,6 +27,7 @@ pub const SFCC_ORG: &str = "f_ecom_blnk_prd";
 pub const SFCC_SITE: &str = "PCL";
 pub const EXTRAS_CATEGORIES: [&str; 3] = ["food-and-drinks", "wifi", "extras"];
 
+const SCHEDULE_URL: &str = "https://gw.api.princess.com/pcl-web/internal/resdb/p1.0/products?agencyCountry=US&cruiseType=C&voyageStatus=A&webDisplay=Y&promoFilter=all&light=false";
 const BASE: &str = "https://www.princess.com/mobify";
 const ORIGIN: &str = "https://www.princess.com";
 const PAGE_LIMIT: usize = 200;
@@ -98,6 +101,33 @@ impl PrincessGuestClient {
             apply_product_details(&mut all, &v);
         }
         Ok(all)
+    }
+
+    /// The whole public schedule (all ships, ~2 years). Gateway headers only; no SFCC token.
+    pub async fn fetch_schedule(&self) -> Result<Vec<PrincessVoyage>, ApiError> {
+        let text = retry_with_pacing(&self.pacing, || async {
+            self.limiter.wait().await;
+            let resp = self
+                .http
+                .get(SCHEDULE_URL)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .header("Accept", "application/json")
+                .header("BookingCompany", "PC")
+                .header("ProductCompany", "PC")
+                .header("ReqSrc", "W")
+                .header("pcl-client-id", PCL_CLIENT_ID)
+                .header("Origin", ORIGIN)
+                .send()
+                .await?;
+            let status = resp.status();
+            let body = resp.text().await?;
+            if !status.is_success() || is_bot_challenge(&body) {
+                return Err(ApiError::Status { status: status.as_u16(), body });
+            }
+            Ok(body)
+        })
+        .await?;
+        Ok(parse_schedule(&serde_json::from_str(&text)?))
     }
 
     async fn search_all(
