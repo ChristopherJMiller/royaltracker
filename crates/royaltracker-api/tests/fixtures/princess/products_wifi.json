@@ -1,0 +1,202 @@
+{
+ "limit": 2,
+ "data": [
+  {
+   "brand": "Princess Cruise Lines",
+   "currency": "USD",
+   "id": "wifi-single-device",
+   "longDescription": "<p><strong>Save up to 20% when buying pre-cruise.</strong></p>\r\n\r\n<p>Stay connected wherever you sail with reliable Wi-Fi for one device. Share your favorite moments, keep in touch with family and friends, stream your favorite shows and browse without limits. Whether you&rsquo;re relaxing in your stateroom or enjoying the view on deck, your connection is always within reach.</p>",
+   "manufacturerName": "Princess Cruise Lines",
+   "manufacturerSku": "6617",
+   "minOrderQuantity": 1,
+   "name": "Wi-Fi Package (1 device)",
+   "price": 24.99,
+   "pricePerUnit": 24.99,
+   "primaryCategoryId": "wifi",
+   "productPromotions": [
+    {
+     "calloutMsg": "Book Early & Save 20%",
+     "promotionalPrice": 24.99,
+     "promotionId": "Wifi-save20"
+    }
+   ],
+   "slugUrl": "https://www.princess.com/en-US/en-US/wi-fi/wifi-single-device.html",
+   "stepQuantity": 1,
+   "type": {
+    "master": true
+   },
+   "unit": "person / day",
+   "unitMeasure": "voucher",
+   "unitQuantity": 1,
+   "c_analyticsCategory": "communication",
+   "c_deliveryDateEnable": false,
+   "c_deviceType": "Single Device",
+   "c_devicesIncluded": 1,
+   "c_enableDeliveryDaySelection": false,
+   "c_enableGuestSelection": {
+    "displayValue": "Multi-Guest",
+    "value": "multi-guest"
+   },
+   "c_enableOptionalMessageInput": false,
+   "c_enableQuantitySelection": false,
+   "c_excludeChildSelection": false,
+   "c_extrasType": "wifi",
+   "c_hideQty": true,
+   "c_hideVariationSelector": true,
+   "c_iconConfiguration": "[\r\n\t{\r\n\t\t\"icon\": \"single-device.svg\",\r\n\t\t\"shortDisplayValue\": \"Single device\",\r\n\t\t\"longDisplayValue\": \"Single device\"\r\n\t},\r\n\t{\r\n\t\t\"icon\": \"ship.svg\",\r\n\t\t\"shortDisplayValue\": \"Entire voyage\",\r\n\t\t\"longDisplayValue\": \"Entire voyage\"\r\n\t}\r\n]",
+   "c_optionalMessageEnable": false,
+   "c_pricingPerDayRate": true,
+   "c_productType": "ssv",
+   "c_ssvAgeRestriction": {
+    "displayValue": "none",
+    "value": "none"
+   },
+   "c_ssvDescription": "MedallionNet 1-device WiFi",
+   "c_ssvMaxOrderQuantity": 0,
+   "c_ssvStatus": "ACTIVE",
+   "c_ssvType": "WY",
+   "c_ssvTypeCode": "W",
+   "c_categoryId": "wifi",
+   "c_bazaarVoicePrefs": {
+    "bvEnvironment": {
+     "displayValue": "Production",
+     "value": "Production"
+    },
+    "bvCustomerName": "princess",
+    "bvDeploymentZone": "b2c_commerce",
+    "bvLocaleMapping": "default:en_US",
+    "bvEnableRR": true,
+    "bvEnableAA": false,
+    "bvEnableBVPixel": true,
+    "bvEnableCloudSEO": false,
+    "bvCloudSEOKey": "princess-b1fdda5dfdc766d18758f378b02d6564",
+    "bvProductImageType": "large",
+    "bvOrderImageType": "large",
+    "bvPurchaseFeedTriggeringEvent": {
+     "displayValue": "Purchase",
+     "value": "purchase"
+    },
+    "bvPurchaseFeedSource": {
+     "displayValue": "XML Feed",
+     "value": "xmlFeed"
+    },
+    "bvEnableInlineRatings": {
+     "displayValue": "Feed Based Inline Ratings",
+     "value": "native"
+    },
+    "bvQuickViewRatingsType": {
+     "displayValue": "Inline Rating Stars",
+     "value": "inlineratings"
+    },
+    "bvEntityId": {
+     "displayValue": "master",
+     "value": "master"
+    },
+    "bvEnableProductFamilies": false
+   },
+   "c_bvScout": "https://apps.bazaarvoice.com/deployments/princess/b2c_commerce/production/en_US/bv.js"
+  },
+  {
+   "brand": "Princess Cruise Lines",
+   "currency": "USD",
+   "id": "wifi-two-device",
+   "longDescription": "<p><strong>Save up to 20% when buying pre-cruise.</strong></p>\r\n\r\n<p>Stay connected wherever you sail with reliable Wi-Fi for up to two devices. Share your favorite moments, keep in touch with family and friends, stream your favorite shows and browse without limits. Whether you&rsquo;re relaxing in your stateroom or enjoying the view on deck, your connection is always within reach.</p>",
+   "manufacturerName": "Princess Cruise Lines",
+   "manufacturerSku": "6623",
+   "minOrderQuantity": 1,
+   "name": "MedallionNet 2-device WiFi",
+   "price": 39.99,
+   "pricePerUnit": 39.99,
+   "primaryCategoryId": "wifi",
+   "productPromotions": [
+    {
+     "calloutMsg": "Book Early & Save 20%",
+     "promotionalPrice": 39.99,
+     "promotionId": "Wifi-save20"
+    }
+   ],
+   "slugUrl": "https://www.princess.com/en-US/en-US/wi-fi/wifi-two-device.html",
+   "stepQuantity": 1,
+   "type": {
+    "master": true
+   },
+   "unit": "person / day",
+   "unitMeasure": "voucher",
+   "unitQuantity": 1,
+   "validFrom": {
+    "default": "2026-10-13T07:00:00.000Z"
+   },
+   "c_analyticsCategory": "communication",
+   "c_badge": [
+    "bestValue"
+   ],
+   "c_deliveryDateEnable": false,
+   "c_deviceType": "Multi Device",
+   "c_devicesIncluded": 2,
+   "c_enableDeliveryDaySelection": false,
+   "c_enableGuestSelection": {
+    "displayValue": "Multi-Guest",
+    "value": "multi-guest"
+   },
+   "c_enableOptionalMessageInput": false,
+   "c_enableQuantitySelection": false,
+   "c_excludeChildSelection": false,
+   "c_extrasType": "wifi",
+   "c_hideQty": true,
+   "c_hideVariationSelector": true,
+   "c_iconConfiguration": "[\r\n\t{\r\n\t\t\"icon\": \"multi-device.svg\",\r\n\t\t\"shortDisplayValue\": \"Multi Device\",\r\n\t\t\"longDisplayValue\": \"Multi Device\"\r\n\t},\r\n\t{\r\n\t\t\"icon\": \"ship.svg\",\r\n\t\t\"shortDisplayValue\": \"Entire Voyage\",\r\n\t\t\"longDisplayValue\": \"Entire Voyage\"\r\n\t}\r\n]",
+   "c_optionalMessageEnable": false,
+   "c_pricingPerDayRate": true,
+   "c_productType": "ssv",
+   "c_ssvAgeRestriction": {
+    "displayValue": "none",
+    "value": "none"
+   },
+   "c_ssvDescription": "MedallionNet 2-device WiFi",
+   "c_ssvMaxOrderQuantity": 0,
+   "c_ssvStatus": "ACTIVE",
+   "c_ssvType": "SE",
+   "c_ssvTypeCode": "W",
+   "c_categoryId": "wifi",
+   "c_bazaarVoicePrefs": {
+    "bvEnvironment": {
+     "displayValue": "Production",
+     "value": "Production"
+    },
+    "bvCustomerName": "princess",
+    "bvDeploymentZone": "b2c_commerce",
+    "bvLocaleMapping": "default:en_US",
+    "bvEnableRR": true,
+    "bvEnableAA": false,
+    "bvEnableBVPixel": true,
+    "bvEnableCloudSEO": false,
+    "bvCloudSEOKey": "princess-b1fdda5dfdc766d18758f378b02d6564",
+    "bvProductImageType": "large",
+    "bvOrderImageType": "large",
+    "bvPurchaseFeedTriggeringEvent": {
+     "displayValue": "Purchase",
+     "value": "purchase"
+    },
+    "bvPurchaseFeedSource": {
+     "displayValue": "XML Feed",
+     "value": "xmlFeed"
+    },
+    "bvEnableInlineRatings": {
+     "displayValue": "Feed Based Inline Ratings",
+     "value": "native"
+    },
+    "bvQuickViewRatingsType": {
+     "displayValue": "Inline Rating Stars",
+     "value": "inlineratings"
+    },
+    "bvEntityId": {
+     "displayValue": "master",
+     "value": "master"
+    },
+    "bvEnableProductFamilies": false
+   },
+   "c_bvScout": "https://apps.bazaarvoice.com/deployments/princess/b2c_commerce/production/en_US/bv.js"
+  }
+ ],
+ "total": 2
+}

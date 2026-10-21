@@ -1,0 +1,614 @@
+{
+  "limit": 33,
+  "effectiveSearchMode": "lexical",
+  "hits": [
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 24.94,
+      "pricePerUnit": 24.94,
+      "productId": "2323",
+      "productName": "Classic Soda Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "2323"
+      },
+      "representedProducts": [
+        {
+          "id": "2323"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "Includes all sodas, fruit juices, mocktails and smoothies.",
+      "c_minprice": 24.94,
+      "c_priceRanges": [
+        {
+          "minPrice": 24.94,
+          "maxPrice": 24.94,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 24.94,
+          "maxPrice": 24.94,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 24.94,
+      "c_categoryId": "food-and-drinks"
+    },
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 40.89,
+      "pricePerUnit": 40.89,
+      "productId": "2321",
+      "productName": "Zero-Alcohol Drink Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "2321"
+      },
+      "representedProducts": [
+        {
+          "id": "2321"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "Stay refreshed with the Zero-Alcohol Drink Package: coffees, sodas, mocktails, and a 25% discount on select drinks.",
+      "c_minprice": 40.89,
+      "c_priceRanges": [
+        {
+          "minPrice": 40.89,
+          "maxPrice": 40.89,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 40.89,
+          "maxPrice": 40.89,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 40.89,
+      "c_categoryId": "food-and-drinks"
+    },
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 108.13,
+      "pricePerUnit": 108.13,
+      "productId": "0835",
+      "productName": "Plus Beverage Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "0835"
+      },
+      "representedProducts": [
+        {
+          "id": "0835"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "Enjoy the Plus Beverage Package: sodas, coffee, cocktails up to $15, and a 25% wine discount.",
+      "c_minprice": 108.13,
+      "c_priceRanges": [
+        {
+          "minPrice": 108.13,
+          "maxPrice": 108.13,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 108.13,
+          "maxPrice": 108.13,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 108.13,
+      "c_categoryId": "food-and-drinks"
+    },
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 141.41,
+      "pricePerUnit": 141.41,
+      "productId": "0836",
+      "productName": "Premier Beverage Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "0836"
+      },
+      "representedProducts": [
+        {
+          "id": "0836"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "Indulge with the Premier Beverage Package: enjoy premium drinks, cocktails, and a 25% wine discount.",
+      "c_minprice": 141.41,
+      "c_priceRanges": [
+        {
+          "minPrice": 141.41,
+          "maxPrice": 141.41,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 141.41,
+          "maxPrice": 141.41,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 141.41,
+      "c_categoryId": "food-and-drinks"
+    },
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 33.84,
+      "pricePerUnit": 33.84,
+      "productId": "0480",
+      "productName": "Stateroom Bottled Water Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "0480"
+      },
+      "representedProducts": [
+        {
+          "id": "0480"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "12 (500 ml) bottles of water conveniently delivered to the stateroom.",
+      "c_minprice": 33.84,
+      "c_priceRanges": [
+        {
+          "minPrice": 33.84,
+          "maxPrice": 33.84,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 33.84,
+          "maxPrice": 33.84,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 33.84,
+      "c_categoryId": "food-and-drinks"
+    },
+    {
+      "currency": "AUD",
+      "hitType": "product",
+      "price": 24.96,
+      "pricePerUnit": 24.96,
+      "productId": "0481",
+      "productName": "Stateroom Canned Soda Package",
+      "productType": {
+        "item": true
+      },
+      "representedProduct": {
+        "id": "0481"
+      },
+      "representedProducts": [
+        {
+          "id": "0481"
+        }
+      ],
+      "c_productType": "ssv",
+      "c_analyticsCategory": "beverage",
+      "c_shortDescription": "Package includes six cans of soda for the price of five\r\n<br>\r\nChoice of six cans: Coke, Diet Coke, Sprite, Diet Sprite, orange soda, soda water, tonic water, ginger ale.",
+      "c_minprice": 24.96,
+      "c_priceRanges": [
+        {
+          "minPrice": 24.96,
+          "maxPrice": 24.96,
+          "pricebook": "pcl-extras-aud-sale"
+        },
+        {
+          "minPrice": 24.96,
+          "maxPrice": 24.96,
+          "pricebook": "pcl-extras-aud-sale"
+        }
+      ],
+      "c_maxlistprice": 24.96,
+      "c_categoryId": "food-and-drinks"
+    }
+  ],
+  "query": "",
+  "refinements": [
+    {
+      "attributeId": "c_foodAndBeverageType",
+      "label": "Food & Drinks Type",
+      "values": [
+        {
+          "hitCount": 6,
+          "label": "Beverage Packages",
+          "value": "beverage-package"
+        },
+        {
+          "hitCount": 4,
+          "label": "Dessert",
+          "value": "dessert"
+        },
+        {
+          "hitCount": 11,
+          "label": "Room Delivery",
+          "value": "room-delivery"
+        },
+        {
+          "hitCount": 15,
+          "label": "Wine and Spirits",
+          "value": "wine-and-spirits"
+        },
+        {
+          "hitCount": 4,
+          "label": "Zero Alcohol",
+          "value": "zero-alcohol"
+        }
+      ]
+    },
+    {
+      "attributeId": "price",
+      "label": "Price",
+      "values": [
+        {
+          "hitCount": 33,
+          "label": "12.69 - 369.37",
+          "value": "(12..369)"
+        }
+      ]
+    },
+    {
+      "attributeId": "ID",
+      "label": "ID",
+      "values": [
+        {
+          "hitCount": 1,
+          "label": "0473",
+          "value": "0473"
+        },
+        {
+          "hitCount": 1,
+          "label": "0476",
+          "value": "0476"
+        },
+        {
+          "hitCount": 1,
+          "label": "0741",
+          "value": "0741"
+        },
+        {
+          "hitCount": 1,
+          "label": "0744",
+          "value": "0744"
+        },
+        {
+          "hitCount": 1,
+          "label": "0745",
+          "value": "0745"
+        },
+        {
+          "hitCount": 1,
+          "label": "0747",
+          "value": "0747"
+        },
+        {
+          "hitCount": 1,
+          "label": "0750",
+          "value": "0750"
+        },
+        {
+          "hitCount": 1,
+          "label": "0756",
+          "value": "0756"
+        },
+        {
+          "hitCount": 1,
+          "label": "0761",
+          "value": "0761"
+        },
+        {
+          "hitCount": 1,
+          "label": "0762",
+          "value": "0762"
+        },
+        {
+          "hitCount": 1,
+          "label": "1111",
+          "value": "1111"
+        },
+        {
+          "hitCount": 1,
+          "label": "1112",
+          "value": "1112"
+        },
+        {
+          "hitCount": 1,
+          "label": "1113",
+          "value": "1113"
+        },
+        {
+          "hitCount": 1,
+          "label": "1114",
+          "value": "1114"
+        },
+        {
+          "hitCount": 1,
+          "label": "1115",
+          "value": "1115"
+        },
+        {
+          "hitCount": 1,
+          "label": "1116",
+          "value": "1116"
+        },
+        {
+          "hitCount": 1,
+          "label": "2321",
+          "value": "2321"
+        },
+        {
+          "hitCount": 1,
+          "label": "2323",
+          "value": "2323"
+        },
+        {
+          "hitCount": 1,
+          "label": "3012",
+          "value": "3012"
+        },
+        {
+          "hitCount": 1,
+          "label": "3013",
+          "value": "3013"
+        },
+        {
+          "hitCount": 1,
+          "label": "3014",
+          "value": "3014"
+        },
+        {
+          "hitCount": 1,
+          "label": "3015",
+          "value": "3015"
+        },
+        {
+          "hitCount": 1,
+          "label": "3016",
+          "value": "3016"
+        },
+        {
+          "hitCount": 1,
+          "label": "3017",
+          "value": "3017"
+        },
+        {
+          "hitCount": 1,
+          "label": "3018",
+          "value": "3018"
+        },
+        {
+          "hitCount": 1,
+          "label": "3019",
+          "value": "3019"
+        },
+        {
+          "hitCount": 1,
+          "label": "3020",
+          "value": "3020"
+        },
+        {
+          "hitCount": 1,
+          "label": "0478",
+          "value": "0478"
+        },
+        {
+          "hitCount": 1,
+          "label": "0479",
+          "value": "0479"
+        },
+        {
+          "hitCount": 1,
+          "label": "0480",
+          "value": "0480"
+        },
+        {
+          "hitCount": 1,
+          "label": "0481",
+          "value": "0481"
+        },
+        {
+          "hitCount": 1,
+          "label": "0758",
+          "value": "0758"
+        },
+        {
+          "hitCount": 1,
+          "label": "0768",
+          "value": "0768"
+        },
+        {
+          "hitCount": 1,
+          "label": "0769",
+          "value": "0769"
+        },
+        {
+          "hitCount": 1,
+          "label": "0835",
+          "value": "0835"
+        },
+        {
+          "hitCount": 1,
+          "label": "0836",
+          "value": "0836"
+        },
+        {
+          "hitCount": 1,
+          "label": "chocolate-mocha-cake",
+          "value": "chocolate-mocha-cake"
+        },
+        {
+          "hitCount": 1,
+          "label": "coconut-confetti-cake",
+          "value": "coconut-confetti-cake"
+        },
+        {
+          "hitCount": 1,
+          "label": "vanilla-celebration-cake",
+          "value": "vanilla-celebration-cake"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_beverageType",
+      "label": "Beverage Type",
+      "values": [
+        {
+          "hitCount": 6,
+          "label": "Red Wine",
+          "value": "red-wine"
+        },
+        {
+          "hitCount": 1,
+          "label": "Sparkling Cider",
+          "value": "sparkling-cider"
+        },
+        {
+          "hitCount": 3,
+          "label": "Sparkling Wine",
+          "value": "sparkling-wine"
+        },
+        {
+          "hitCount": 5,
+          "label": "White Wine",
+          "value": "white-wine"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_wineVarietal",
+      "label": "Wine Type",
+      "values": [
+        {
+          "hitCount": 1,
+          "label": "Blend",
+          "value": "Blend"
+        },
+        {
+          "hitCount": 2,
+          "label": "Cabernet Sauvignon",
+          "value": "Cabernet Sauvignon"
+        },
+        {
+          "hitCount": 1,
+          "label": "Champagne",
+          "value": "Champagne"
+        },
+        {
+          "hitCount": 1,
+          "label": "Chardonnay",
+          "value": "Chardonnay"
+        },
+        {
+          "hitCount": 1,
+          "label": "Grenache",
+          "value": "Grenache"
+        },
+        {
+          "hitCount": 1,
+          "label": "Grüner Veltliner",
+          "value": "Grüner Veltliner"
+        },
+        {
+          "hitCount": 1,
+          "label": "Pinot Noir",
+          "value": "Pinot Noir"
+        },
+        {
+          "hitCount": 1,
+          "label": "Rioja",
+          "value": "Rioja"
+        },
+        {
+          "hitCount": 1,
+          "label": "Rosé",
+          "value": "Rosé"
+        },
+        {
+          "hitCount": 1,
+          "label": "Sauvignon Blanc",
+          "value": "Sauvignon Blanc"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_wineOrigin",
+      "label": "Wine Origin",
+      "values": [
+        {
+          "hitCount": 1,
+          "label": "Austria",
+          "value": "Austria"
+        },
+        {
+          "hitCount": 6,
+          "label": "California",
+          "value": "California"
+        },
+        {
+          "hitCount": 4,
+          "label": "France",
+          "value": "France"
+        },
+        {
+          "hitCount": 1,
+          "label": "Italy",
+          "value": "Italy"
+        },
+        {
+          "hitCount": 1,
+          "label": "New Zealand",
+          "value": "New Zealand"
+        },
+        {
+          "hitCount": 1,
+          "label": "Spain",
+          "value": "Spain"
+        }
+      ]
+    }
+  ],
+  "searchPhraseSuggestions": {},
+  "selectedRefinements": {
+    "cgid": "food-and-drinks",
+    "price": "(0..)",
+    "ilids": "pcl-extras-inventory"
+  },
+  "sortingOptions": [
+    {
+      "id": "revenue-month-recommended",
+      "label": "Recommended"
+    },
+    {
+      "id": "price-low-to-high",
+      "label": "Price"
+    },
+    {
+      "id": "byName",
+      "label": "Name"
+    }
+  ],
+  "offset": 0,
+  "total": 33
+}

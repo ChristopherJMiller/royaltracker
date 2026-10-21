@@ -96,6 +96,9 @@ pub struct PublicProduct {
     pub base_label: Option<String>,
     pub currency: Option<String>,
     pub unit_label: Option<String>,
+    /// Child price in cents where the line prices children separately (Princess
+    /// excursions); always None on the RCG path.
+    pub child_cents: Option<i64>,
 }
 
 impl PublicProduct {
@@ -116,15 +119,22 @@ pub enum PublicFetch {
     PlannerNotOpen,
 }
 
-struct RateLimiter {
+pub(crate) struct RateLimiter {
     last: Mutex<Option<Instant>>,
     pacing: PacingConfig,
 }
 
 impl RateLimiter {
+    pub(crate) fn new(pacing: PacingConfig) -> Self {
+        Self {
+            last: Mutex::new(None),
+            pacing,
+        }
+    }
+
     /// Sleep so consecutive requests are at least `min_interval` apart plus a
     /// random jitter, making the traffic look less metronomic to Akamai.
-    async fn wait(&self) {
+    pub(crate) async fn wait(&self) {
         let extra = jitter_between(self.pacing.jitter.0, self.pacing.jitter.1);
         let mut guard = self.last.lock().await;
         if let Some(prev) = *guard {
@@ -189,10 +199,7 @@ impl PublicClient {
         Ok(Self {
             cfg,
             http,
-            limiter: RateLimiter {
-                last: Mutex::new(None),
-                pacing,
-            },
+            limiter: RateLimiter::new(pacing),
             warmed: Mutex::new(HashSet::new()),
         })
     }
@@ -209,28 +216,12 @@ impl PublicClient {
         Ok(())
     }
 
-    async fn retry<T, F, Fut>(&self, mut f: F) -> Result<T, ApiError>
+    async fn retry<T, F, Fut>(&self, f: F) -> Result<T, ApiError>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, ApiError>>,
     {
-        let mut attempt = 0u32;
-        loop {
-            match f().await {
-                Ok(v) => return Ok(v),
-                Err(e) if is_retryable(&e) && attempt < self.cfg.pacing.max_retries => {
-                    let challenged = matches!(&e, ApiError::Status { body, .. } if is_bot_challenge(body));
-                    let mut backoff = self.cfg.base_backoff_pow(attempt);
-                    if challenged {
-                        backoff = backoff.max(self.cfg.pacing.cooldown_after_challenge);
-                    }
-                    tracing::warn!(attempt, challenged, backoff_s = backoff.as_secs(), error = %e, "public fetch retry");
-                    tokio::time::sleep(backoff).await;
-                    attempt += 1;
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        retry_with_pacing(&self.cfg.pacing, f).await
     }
 
     /// List the bookable sail dates for a ship (public voyages endpoint). Powers
@@ -361,6 +352,7 @@ impl PublicClient {
                     unit_label: price.and_then(|pr| {
                         pr.sales_unit.as_ref().and_then(|u| u.label.clone())
                     }),
+                    child_cents: None,
                 });
             }
         }
@@ -371,9 +363,37 @@ impl PublicClient {
     }
 }
 
-impl PublicClientConfig {
-    fn base_backoff_pow(&self, attempt: u32) -> Duration {
-        let mult = 1u32.checked_shl(attempt).unwrap_or(u32::MAX);
-        (self.pacing.base_backoff * mult).min(self.pacing.max_backoff)
+fn backoff_pow(pacing: &PacingConfig, attempt: u32) -> Duration {
+    let mult = 1u32.checked_shl(attempt).unwrap_or(u32::MAX);
+    (pacing.base_backoff * mult).min(pacing.max_backoff)
+}
+
+/// Retry `f` with exponential backoff on retryable errors (shared with the
+/// Princess guest client).
+pub(crate) async fn retry_with_pacing<T, F, Fut>(
+    pacing: &PacingConfig,
+    mut f: F,
+) -> Result<T, ApiError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    let mut attempt = 0u32;
+    loop {
+        match f().await {
+            Ok(v) => return Ok(v),
+            Err(e) if is_retryable(&e) && attempt < pacing.max_retries => {
+                let challenged =
+                    matches!(&e, ApiError::Status { body, .. } if is_bot_challenge(body));
+                let mut backoff = backoff_pow(pacing, attempt);
+                if challenged {
+                    backoff = backoff.max(pacing.cooldown_after_challenge);
+                }
+                tracing::warn!(attempt, challenged, backoff_s = backoff.as_secs(), error = %e, "public fetch retry");
+                tokio::time::sleep(backoff).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
     }
 }

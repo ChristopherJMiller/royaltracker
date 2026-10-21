@@ -1,0 +1,211 @@
+{
+ "limit": 2,
+ "effectiveSearchMode": "lexical",
+ "hits": [
+  {
+   "currency": "USD",
+   "hitType": "master",
+   "price": 24.99,
+   "pricePerUnit": 24.99,
+   "productId": "wifi-single-device",
+   "productName": "Wi-Fi Package (1 device)",
+   "productPromotions": [
+    {
+     "calloutMsg": "Book Early & Save 20%",
+     "promotionalPrice": 24.99,
+     "promotionId": "Wifi-save20"
+    }
+   ],
+   "productType": {
+    "master": true
+   },
+   "representedProduct": {
+    "id": "6617"
+   },
+   "representedProducts": [
+    {
+     "id": "6617"
+    },
+    {
+     "id": "6620"
+    }
+   ],
+   "c_productType": "ssv",
+   "c_iconConfiguration": [
+    {
+     "icon": "single-device.svg",
+     "shortDisplayValue": "Single device",
+     "longDisplayValue": "Single device"
+    },
+    {
+     "icon": "ship.svg",
+     "shortDisplayValue": "Entire voyage",
+     "longDisplayValue": "Entire voyage"
+    }
+   ],
+   "c_analyticsCategory": "communication",
+   "c_productPromotions": [
+    {
+     "promotionId": "Wifi-save20",
+     "calloutMsg": "Book Early & Save 20%"
+    }
+   ],
+   "c_minprice": 24.99,
+   "c_priceRanges": [
+    {
+     "minPrice": 24.99,
+     "maxPrice": 24.99,
+     "pricebook": "pcl-extras-usd-sale"
+    },
+    {
+     "minPrice": 29.99,
+     "maxPrice": 29.99,
+     "pricebook": "pcl-extras-usd-list"
+    }
+   ],
+   "c_maxlistprice": 29.99,
+   "c_categoryId": "wifi"
+  },
+  {
+   "currency": "USD",
+   "hitType": "master",
+   "price": 39.99,
+   "pricePerUnit": 39.99,
+   "productId": "wifi-two-device",
+   "productName": "MedallionNet 2-device WiFi",
+   "productPromotions": [
+    {
+     "calloutMsg": "Book Early & Save 20%",
+     "promotionalPrice": 39.99,
+     "promotionId": "Wifi-save20"
+    }
+   ],
+   "productType": {
+    "master": true
+   },
+   "representedProduct": {
+    "id": "6623"
+   },
+   "representedProducts": [
+    {
+     "id": "6623"
+    },
+    {
+     "id": "6624"
+    }
+   ],
+   "c_productType": "ssv",
+   "c_iconConfiguration": [
+    {
+     "icon": "multi-device.svg",
+     "shortDisplayValue": "Multi Device",
+     "longDisplayValue": "Multi Device"
+    },
+    {
+     "icon": "ship.svg",
+     "shortDisplayValue": "Entire Voyage",
+     "longDisplayValue": "Entire Voyage"
+    }
+   ],
+   "c_analyticsCategory": "communication",
+   "c_productPromotions": [
+    {
+     "promotionId": "Wifi-save20",
+     "calloutMsg": "Book Early & Save 20%"
+    }
+   ],
+   "c_minprice": 39.99,
+   "c_priceRanges": [
+    {
+     "minPrice": 39.99,
+     "maxPrice": 39.99,
+     "pricebook": "pcl-extras-usd-sale"
+    },
+    {
+     "minPrice": 47.99,
+     "maxPrice": 47.99,
+     "pricebook": "pcl-extras-usd-list"
+    }
+   ],
+   "c_maxlistprice": 47.99,
+   "c_categoryId": "wifi"
+  }
+ ],
+ "query": "",
+ "refinements": [
+  {
+   "attributeId": "c_devicesIncluded",
+   "label": "Wi-Fi type",
+   "values": [
+    {
+     "hitCount": 1,
+     "label": "Single device",
+     "value": "Single device"
+    },
+    {
+     "hitCount": 1,
+     "label": "Multi device",
+     "value": "Multi device"
+    }
+   ]
+  },
+  {
+   "attributeId": "ID",
+   "label": "ID",
+   "values": [
+    {
+     "hitCount": 1,
+     "label": "6617",
+     "value": "6617"
+    },
+    {
+     "hitCount": 1,
+     "label": "6620",
+     "value": "6620"
+    },
+    {
+     "hitCount": 1,
+     "label": "6623",
+     "value": "6623"
+    },
+    {
+     "hitCount": 1,
+     "label": "6624",
+     "value": "6624"
+    },
+    {
+     "hitCount": 1,
+     "label": "wifi-single-device",
+     "value": "wifi-single-device"
+    },
+    {
+     "hitCount": 1,
+     "label": "wifi-two-device",
+     "value": "wifi-two-device"
+    }
+   ]
+  }
+ ],
+ "searchPhraseSuggestions": {},
+ "selectedRefinements": {
+  "cgid": "wifi",
+  "price": "(0..)",
+  "ilids": "pcl-extras-inventory"
+ },
+ "sortingOptions": [
+  {
+   "id": "revenue-month-recommended",
+   "label": "Recommended"
+  },
+  {
+   "id": "price-low-to-high",
+   "label": "Price"
+  },
+  {
+   "id": "byName",
+   "label": "Name"
+  }
+ ],
+ "offset": 0,
+ "total": 2
+}
