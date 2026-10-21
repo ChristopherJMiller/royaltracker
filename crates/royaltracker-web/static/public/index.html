@@ -208,7 +208,27 @@
       list.innerHTML='';
       rows.forEach(function(s){
         var el=document.createElement('div'); el.className='row';
-        var price=s.latest_promo_price!=null?((s.voyage_code?'':'$')+s.latest_promo_price.toFixed(2)):'—';
+        var price=s.latest_promo_price!=null?((s.currency&&s.currency!=='USD'?s.currency+' ':':'—';
+        el.innerHTML='<div><div>'+esc(s.label||s.product_code)+'</div><span class="cat">'+esc(s.ship_code)+' · '+esc(s.sail_date)+(s.voyage_code?' · '+esc(s.voyage_code):'')+' · now '+price+' · '+esc(s.channel_kind)+'</span></div>';
+        var b=document.createElement('button'); b.className='ghost'; b.textContent='Remove';
+        b.addEventListener('click',function(){ fetch('/public/subscriptions/'+s.subscription_id,{method:'DELETE'}).then(function(){ el.remove(); }); });
+        el.appendChild(b); list.appendChild(el);
+      });
+    }).catch(function(){ list.innerHTML='<div class="empty">No alerts on this device yet.</div>'; });
+  }
+  $('manageLink').addEventListener('click', showManage);
+  $('backLink').addEventListener('click', function(){ $('manage').classList.add('hidden'); $('lookup').classList.remove('hidden'); });
+
+  brandSel.addEventListener('change', renderShips);
+  shipSel.addEventListener('change', loadDates);
+  dateSel.addEventListener('change', loadPrices);
+  loadShips();
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/p/sw.js').catch(function(){}); }
+})();
+</script>
+</body>
+</html>
+)+s.latest_promo_price.toFixed(2)):'—';
         el.innerHTML='<div><div>'+esc(s.label||s.product_code)+'</div><span class="cat">'+esc(s.ship_code)+' · '+esc(s.sail_date)+(s.voyage_code?' · '+esc(s.voyage_code):'')+' · now '+price+' · '+esc(s.channel_kind)+'</span></div>';
         var b=document.createElement('button'); b.className='ghost'; b.textContent='Remove';
         b.addEventListener('click',function(){ fetch('/public/subscriptions/'+s.subscription_id,{method:'DELETE'}).then(function(){ el.remove(); }); });

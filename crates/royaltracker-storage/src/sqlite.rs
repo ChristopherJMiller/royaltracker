@@ -22,10 +22,6 @@ fn scope_to_opt(s: String) -> Option<String> {
     }
 }
 
-fn money_label(v: Option<f64>) -> Option<String> {
-    v.map(|p| format!("${p:.2}"))
-}
-
 #[derive(Clone)]
 pub struct SqliteRepo {
     pool: SqlitePool,
@@ -964,7 +960,8 @@ impl PriceRepo for SqliteRepo {
     ) -> Result<Vec<PublicPriceDto>, StorageError> {
         let rows = sqlx::query(
             r#"SELECT t.product_code, t.category_prefix, t.label,
-                      sp.adult_promo_price, sp.base_price, sp.fetched_at, s.currency
+                      sp.adult_promo_price, sp.base_price, sp.fetched_at, s.currency,
+                      json_extract(sp.raw_response, '$.unit_label') AS unit_label
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                LEFT JOIN sailing_price_snapshots sp ON sp.id = (
@@ -1272,17 +1269,19 @@ fn row_to_public_price_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<PublicPriceD
         Some(s) => Some(parse_ts_sqlite(&s)?),
         None => None,
     };
+    let currency: Option<String> = r.try_get("currency")?;
+    let cur = currency.as_deref();
     Ok(PublicPriceDto {
         product_code: r.try_get("product_code")?,
         category: r.try_get("category_prefix")?,
         title: r.try_get("label")?,
         promo_price: promo,
         base_price: base,
-        price_label: money_label(promo),
-        base_price_label: money_label(base),
-        unit_label: None,
+        price_label: promo.map(|v| royaltracker_types::format_money(v, cur)),
+        base_price_label: base.map(|v| royaltracker_types::format_money(v, cur)),
+        unit_label: r.try_get("unit_label")?,
         fetched_at,
-        currency: r.try_get("currency")?,
+        currency,
     })
 }
 
