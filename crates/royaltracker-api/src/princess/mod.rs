@@ -2,8 +2,12 @@
 //! Cloud. Guest token only; no shopper context is ever set (prices are
 //! identical with and without it). See spec §9.2.
 
+mod account;
 mod catalog;
 
+pub use account::{
+    basic_auth_value, parse_departure, parse_keep_alive, PrincessAccountClient, PrincessBookingContext,
+};
 pub use catalog::{apply_product_details, category_name, parse_search_hits};
 
 use base64::Engine;
