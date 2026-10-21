@@ -128,6 +128,9 @@ impl PrincessGuestClient {
                 .and_then(|h| h.as_array())
                 .map_or(0, |h| h.len());
             let total = v.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as usize;
+            if v.get("total").is_none() && got >= PAGE_LIMIT {
+                tracing::warn!(category_id, offset, "princess search page full but `total` absent");
+            }
             out.extend(page);
             offset += got;
             if got == 0 || offset >= total {
@@ -137,32 +140,39 @@ impl PrincessGuestClient {
         Ok(out)
     }
 
+
     async fn get_json(&self, url: &str) -> Result<serde_json::Value, ApiError> {
         let text = retry_with_pacing(&self.pacing, || async {
-            let token = self.bearer().await?;
-            self.limiter.wait().await;
-            let resp = self
-                .http
-                .get(url)
-                .header("User-Agent", DEFAULT_USER_AGENT)
-                .header("Accept", "application/json")
-                .header("Origin", ORIGIN)
-                .header("Authorization", format!("Bearer {token}"))
-                .send()
-                .await?;
-            let status = resp.status();
-            let body = resp.text().await?;
-            if !status.is_success() || is_bot_challenge(&body) {
-                if status.as_u16() == 401 {
-                    // Token rejected: drop it so the retry mints a new one.
+            let mut reauthed = false;
+            loop {
+                let token = self.bearer().await?;
+                self.limiter.wait().await;
+                let resp = self
+                    .http
+                    .get(url)
+                    .header("User-Agent", DEFAULT_USER_AGENT)
+                    .header("Accept", "application/json")
+                    .header("Origin", ORIGIN)
+                    .header("Authorization", format!("Bearer {token}"))
+                    .send()
+                    .await?;
+                let status = resp.status();
+                let body = resp.text().await?;
+                if should_retry_after_auth_failure(status.as_u16(), reauthed) {
+                    // Token rejected (e.g. revoked): drop it and retry this
+                    // request once with a freshly minted token.
                     *self.token.lock().await = None;
+                    reauthed = true;
+                    continue;
                 }
-                return Err(ApiError::Status {
-                    status: status.as_u16(),
-                    body,
-                });
+                if !status.is_success() || is_bot_challenge(&body) {
+                    return Err(ApiError::Status {
+                        status: status.as_u16(),
+                        body,
+                    });
+                }
+                return Ok(body);
             }
-            Ok(body)
         })
         .await?;
         Ok(serde_json::from_str(&text)?)
@@ -222,4 +232,24 @@ fn query(pairs: &[(&str, &str)]) -> String {
         s.append_pair(k, v);
     }
     s.finish()
+}
+
+/// A 401 on an SFCC call means the cached guest token was rejected; retry once
+/// with a fresh one, never more (RCG `is_retryable` is deliberately untouched).
+fn should_retry_after_auth_failure(status: u16, already_retried: bool) -> bool {
+    status == 401 && !already_retried
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_retry_after_auth_failure as f;
+
+    #[test]
+    fn retries_401_exactly_once() {
+        assert!(f(401, false));
+        assert!(!f(401, true));
+        assert!(!f(200, false));
+        assert!(!f(403, false));
+        assert!(!f(500, false));
+    }
 }
