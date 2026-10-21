@@ -28,6 +28,9 @@ pub struct DiffContext<'a> {
     pub itinerary: Option<&'a str>,
     /// ISO currency code for prices; `None` renders as USD ("$").
     pub currency: Option<&'a str>,
+    /// Pricing unit shown after the new price, e.g. "per person / day".
+    /// `None` leaves the message unchanged.
+    pub unit_label: Option<&'a str>,
 }
 
 /// Build the MarkdownV2 message text for a price drop.
@@ -42,8 +45,14 @@ pub fn render_diff(ctx: &DiffContext<'_>) -> String {
     if let Some(itin) = ctx.itinerary {
         text.push_str(&format!("\n🚢 {}", escape_md_v2(itin)));
     }
+    let unit = ctx
+        .unit_label
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .map(|u| format!(" {}", escape_md_v2(u)))
+        .unwrap_or_default();
     text.push_str(&format!(
-        "\n*{new}* — was {old} \\({pct}\\)",
+        "\n*{new}*{unit} — was {old} \\({pct}\\)",
         new = escape_md_v2(&new_p),
         old = escape_md_v2(&old_p),
         pct = escape_md_v2(&pct),
@@ -114,7 +123,24 @@ mod tests {
     use super::*;
 
     fn ctx<'a>(label: &'a str, diff: &'a Diff) -> DiffContext<'a> {
-        DiffContext { label, diff, msrp_label: None, itinerary: None, currency: None }
+        DiffContext { label, diff, msrp_label: None, itinerary: None, currency: None, unit_label: None }
+    }
+
+    #[test]
+    fn unit_label_follows_new_price() {
+        let d = Diff::from_prices(1, 30.0, 24.94);
+        let text = render_diff(&DiffContext {
+            currency: Some("AUD"),
+            unit_label: Some("per person / day"),
+            ..ctx("Classic Soda", &d)
+        });
+        assert!(
+            text.contains("*AUD 24\\.94* per person / day — was AUD 30\\.00 \\(\\-16\\.9%\\)"),
+            "{text}"
+        );
+        // Empty unit renders as no unit.
+        let blank = render_diff(&DiffContext { unit_label: Some("  "), ..ctx("X", &d) });
+        assert_eq!(blank, render_diff(&ctx("X", &d)));
     }
 
     #[test]
@@ -129,6 +155,23 @@ mod tests {
     fn usd_default_unchanged() {
         let d = Diff::from_prices(1, 30.0, 24.94);
         assert!(render_diff(&ctx("X", &d)).contains("$24\\.94"));
+    }
+
+    #[test]
+    fn rcg_full_message_byte_identical() {
+        let d = Diff::from_prices(1, 107.99, 87.99);
+        let text = render_diff(&DiffContext {
+            msrp_label: Some("$135.00"),
+            itinerary: Some("Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434 (assigned)"),
+            ..ctx("Deluxe Beverage Package (Adult)", &d)
+        });
+        assert_eq!(
+            text,
+            "🔻 *Deluxe Beverage Package \\(Adult\\)*\n\
+             🚢 Wonder of the Seas · 3 nights · Sep 4, 2026 · cabin 9434 \\(assigned\\)\n\
+             *$87\\.99* — was $107\\.99 \\(\\-18\\.5%\\)\n\
+             35% off MSRP $135\\.00"
+        );
     }
 
     #[test]

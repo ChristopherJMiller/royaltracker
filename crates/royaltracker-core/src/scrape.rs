@@ -71,7 +71,9 @@ pub async fn run_scrape_cycle(
             continue;
         };
 
-        let current = if booking.brand == Brand::Princess {
+        // The unit comes from the live Princess product; RCG falls back to the
+        // catalog entry's unit (below).
+        let (current, live_unit) = if booking.brand == Brand::Princess {
             // Princess never uses the RCG client pool.
             let Some(pc) = princess else {
                 warn!(watched_id = w.id, "no Princess client; skipping");
@@ -93,13 +95,14 @@ pub async fn run_scrape_cycle(
                 warn!(watched_id = w.id, product = %w.product_code, "product not in Princess catalog; skipping");
                 continue;
             };
-            PriceSnapshot {
+            let snap = PriceSnapshot {
                 watched_id: w.id,
                 fetched_at: Utc::now(),
                 adult_promo_price: product.promo_dollars(),
                 child_promo_price: product.child_cents.map(|c| c as f64 / 100.0),
                 raw_response: serde_json::to_value(product).unwrap_or(serde_json::Value::Null),
-            }
+            };
+            (snap, product.unit_label.clone())
         } else {
             let Some(api) = clients_by_brand.get(&booking.brand) else {
                 warn!(
@@ -132,7 +135,7 @@ pub async fn run_scrape_cycle(
                     continue;
                 }
             };
-            into_snapshot(w.id, &price)
+            (into_snapshot(w.id, &price), None)
         };
 
         let previous = repo.latest_snapshot(w.id).await.ok().flatten();
@@ -184,6 +187,9 @@ pub async fn run_scrape_cycle(
         let catalog_entry = catalog_index
             .get(&(w.reservation_id.clone(), w.product_code.clone()));
         let msrp_label = catalog_entry.and_then(|e| e.base_price_label.as_deref());
+        let unit_label = live_unit
+            .as_deref()
+            .or_else(|| catalog_entry.and_then(|e| e.unit_label.as_deref()));
         let itinerary = itinerary_label(booking);
         let alert = PriceDropAlert {
             label: &label,
@@ -192,6 +198,7 @@ pub async fn run_scrape_cycle(
             itinerary: Some(&itinerary),
             manage_url: None,
             currency: booking.currency.as_deref(),
+            unit_label,
         };
 
         let mut any_sent = false;

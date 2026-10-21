@@ -249,6 +249,7 @@ async fn sweep_one(
             itinerary: Some(&itinerary),
             manage_url: None,
             currency: tp.currency.as_deref().or(if tp.brand == Brand::Princess { Some("USD") } else { None }),
+            unit_label: p.unit_label.as_deref(),
         };
         match notifier.notify_price_drop(&target, &alert).await {
             Ok(()) => {

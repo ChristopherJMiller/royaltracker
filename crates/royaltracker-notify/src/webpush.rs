@@ -50,16 +50,9 @@ impl WebPushChannel {
             .map_err(|_| NotifyError::Permanent("bad p256 public key".into()))?;
         let ua_auth = *Auth::from_slice(&auth);
 
-        let body = format!(
-            "{} — was {} ({:+.1}%){}",
-            royaltracker_types::format_money(alert.diff.new_price, alert.currency),
-            royaltracker_types::format_money(alert.diff.old_price, alert.currency),
-            alert.diff.delta_pct,
-            alert.itinerary.map(|i| format!("\n{i}")).unwrap_or_default()
-        );
         let payload = serde_json::json!({
             "title": format!("🔻 {}", alert.label),
-            "body": body,
+            "body": push_body(alert),
             "url": alert.manage_url,
         })
         .to_string();
@@ -87,5 +80,55 @@ impl WebPushChannel {
             429 | 500..=599 => Err(NotifyError::Transient(format!("push status {}", resp.status()))),
             other => Err(NotifyError::Permanent(format!("push status {other}"))),
         }
+    }
+}
+
+/// Notification body: new price (+ unit), old price, % change, itinerary.
+fn push_body(alert: &PriceDropAlert<'_>) -> String {
+    let unit = alert
+        .unit_label
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .map(|u| format!(" {u}"))
+        .unwrap_or_default();
+    format!(
+        "{}{unit} — was {} ({:+.1}%){}",
+        royaltracker_types::format_money(alert.diff.new_price, alert.currency),
+        royaltracker_types::format_money(alert.diff.old_price, alert.currency),
+        alert.diff.delta_pct,
+        alert.itinerary.map(|i| format!("\n{i}")).unwrap_or_default()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use royaltracker_types::Diff;
+
+    fn alert<'a>(diff: &'a Diff, currency: Option<&'a str>, unit: Option<&'a str>) -> PriceDropAlert<'a> {
+        PriceDropAlert {
+            label: "Classic Soda",
+            diff,
+            msrp_label: None,
+            itinerary: Some("Ship · Jan 2, 2027"),
+            manage_url: None,
+            currency,
+            unit_label: unit,
+        }
+    }
+
+    #[test]
+    fn push_body_without_unit_unchanged() {
+        let d = Diff::from_prices(1, 30.0, 24.94);
+        assert_eq!(push_body(&alert(&d, None, None)), "$24.94 — was $30.00 (-16.9%)\nShip · Jan 2, 2027");
+    }
+
+    #[test]
+    fn push_body_shows_unit_after_new_price() {
+        let d = Diff::from_prices(1, 30.0, 24.94);
+        assert_eq!(
+            push_body(&alert(&d, Some("AUD"), Some("per person / day"))),
+            "AUD 24.94 per person / day — was AUD 30.00 (-16.9%)\nShip · Jan 2, 2027"
+        );
     }
 }
