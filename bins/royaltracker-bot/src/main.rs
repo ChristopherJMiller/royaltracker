@@ -590,15 +590,23 @@ async fn test_login(
 ) -> anyhow::Result<String> {
     match line {
         CruiseLine::Rcg => {
-            let api_cfg = CruiseClientConfig::web(
-                Brand::Royal,
-                login.to_string(),
-                password.to_string(),
-                app.rcg_basic_auth_b64.as_ref().clone(),
-            );
-            let api = CruiseClient::new(api_cfg)?;
-            let token = api.login().await?;
-            Ok(token.account_id)
+            // Like discovery, an RCG account may log in on either brand's host:
+            // try Royal, then Celebrity; success if either works.
+            let mut errors = Vec::new();
+            for brand in [Brand::Royal, Brand::Celebrity] {
+                let api_cfg = CruiseClientConfig::web(
+                    brand,
+                    login.to_string(),
+                    password.to_string(),
+                    app.rcg_basic_auth_b64.as_ref().clone(),
+                );
+                let attempt = async { CruiseClient::new(api_cfg)?.login().await };
+                match attempt.await {
+                    Ok(token) => return Ok(token.account_id),
+                    Err(e) => errors.push(format!("{brand}: login: {e}")),
+                }
+            }
+            anyhow::bail!(errors.join("; "))
         }
         CruiseLine::Princess => {
             let client = royaltracker_api::princess::PrincessAccountClient::new()?;
