@@ -2679,6 +2679,7 @@ dependencies = [
  "chrono",
  "royaltracker-api",
  "royaltracker-config",
+ "royaltracker-core",
  "royaltracker-crypto",
  "royaltracker-storage",
  "royaltracker-telegram",

@@ -159,7 +159,7 @@ function AccountForm({ onLinked, lines }) {
             </select>
           </label>
           <label class="block">
-            <span class="text-sm">Login${line === "rcg" ? " (email)" : ""}</span>
+            <span class="text-sm">${line === "princess" ? "Login ID or email" : "Login (email)"}</span>
             <input type=${line === "rcg" ? "email" : "text"} required autocomplete="username" value=${login}
                    onInput=${(e) => setLogin(e.target.value)}
                    class="mt-1 w-full bg-tg-bg text-tg-text rounded-lg px-3 py-2 border border-tg-hint/30
@@ -187,7 +187,7 @@ function AccountForm({ onLinked, lines }) {
 }
 
 // Part A exposes Royal Caribbean & Celebrity only; Task 12 adds Princess.
-const LINES = [["rcg", "Royal Caribbean & Celebrity"]];
+const LINES = [["rcg", "Royal Caribbean & Celebrity"], ["princess", "Princess"]];
 
 function AccountsView({ lines, onBack, onChanged }) {
   const [accounts, setAccounts] = useState(null);
