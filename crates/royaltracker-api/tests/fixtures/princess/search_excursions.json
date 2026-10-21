@@ -1,0 +1,555 @@
+{
+  "limit": 116,
+  "effectiveSearchMode": "lexical",
+  "hits": [
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 99.95,
+      "pricePerUnit": 99.95,
+      "productId": "BZE-100",
+      "productName": "Altun Ha Mayan Ruins & City Drive",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-BZE100A-01062027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-BZE100A-01062027"
+        }
+      ],
+      "c_duration": 4.5,
+      "c_activityLevel": "Easy",
+      "c_portId": "BZE",
+      "c_portName": "Belize City, Belize",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "4.4",
+      "c_bvReviewCount": "499",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 99.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 99.95,
+          "maxPrice": 99.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 59.95,
+      "pricePerUnit": 59.95,
+      "productId": "RTB-100",
+      "productName": "Cultural Show, Scenic Drive & Shopping",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-RTB100A-01052027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-RTB100A-01052027"
+        }
+      ],
+      "c_badges": [
+        {
+          "displayName": "Guest Favorite",
+          "style": "background-color:#003595;color:#FFFFFF"
+        }
+      ],
+      "c_duration": 4.0,
+      "c_activityLevel": "Easy",
+      "c_portId": "RTB",
+      "c_portName": "Roatan (isla Tropicale), Honduras",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "3.3",
+      "c_bvReviewCount": "321",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 59.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 59.95,
+          "maxPrice": 59.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 199.95,
+      "pricePerUnit": 199.95,
+      "productId": "CZM-100",
+      "productName": "Tulum Mayan Ruins",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-CZM100A-01072027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-CZM100A-01072027"
+        }
+      ],
+      "c_duration": 8.0,
+      "c_activityLevel": "Moderate",
+      "c_portId": "CZM",
+      "c_portName": "Cozumel, Mexico",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "4.1",
+      "c_bvReviewCount": "224",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 199.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 199.95,
+          "maxPrice": 199.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 224.95,
+      "pricePerUnit": 224.95,
+      "productId": "CZM-105",
+      "productName": "Tulum Mayan Ruins, Beach Club & Lunch",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-CZM105A-01072027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-CZM105A-01072027"
+        }
+      ],
+      "c_duration": 8.0,
+      "c_activityLevel": "Strenuous",
+      "c_portId": "CZM",
+      "c_portName": "Cozumel, Mexico",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "3.6",
+      "c_bvReviewCount": "98",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 224.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 224.95,
+          "maxPrice": 224.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 79.95,
+      "pricePerUnit": 79.95,
+      "productId": "RTB-105",
+      "productName": "Botanical Gardens, Birds, Butterflies & West End Village",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-RTB105A-01052027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-RTB105A-01052027"
+        }
+      ],
+      "c_duration": 4.25,
+      "c_activityLevel": "Easy",
+      "c_portId": "RTB",
+      "c_portName": "Roatan (isla Tropicale), Honduras",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "3.5",
+      "c_bvReviewCount": "305",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 79.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 79.95,
+          "maxPrice": 79.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 139.95,
+      "pricePerUnit": 139.95,
+      "productId": "BZE-105",
+      "productName": "Altun Ha Mayan Ruins & Scenic River Cruise",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-BZE105A-01062027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-BZE105A-01062027"
+        },
+        {
+          "id": "4702-BZE105B-01062027"
+        }
+      ],
+      "c_duration": 6.5,
+      "c_activityLevel": "Moderate",
+      "c_portId": "BZE",
+      "c_portName": "Belize City, Belize",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "4.4",
+      "c_bvReviewCount": "253",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 139.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 139.95,
+          "maxPrice": 139.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 129.95,
+      "pricePerUnit": 129.95,
+      "productId": "BZE-110",
+      "productName": "Xunantunich Mayan Ruins & Lunch",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-BZE110A-01062027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-BZE110A-01062027"
+        }
+      ],
+      "c_badges": [
+        {
+          "displayName": "Guest Favorite",
+          "style": "background-color:#003595;color:#FFFFFF"
+        }
+      ],
+      "c_duration": 7.0,
+      "c_activityLevel": "Moderate",
+      "c_portId": "BZE",
+      "c_portName": "Belize City, Belize",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "4.4",
+      "c_bvReviewCount": "227",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 129.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 129.95,
+          "maxPrice": 129.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    },
+    {
+      "currency": "USD",
+      "hitType": "master",
+      "price": 59.95,
+      "pricePerUnit": 59.95,
+      "productId": "RTB-110",
+      "productName": "Roatan Island Tour, Caribbean Park & Beach Break",
+      "productType": {
+        "master": true
+      },
+      "representedProduct": {
+        "id": "4702-RTB110A-01052027"
+      },
+      "representedProducts": [
+        {
+          "id": "4702-RTB110A-01052027"
+        }
+      ],
+      "c_duration": 3.5,
+      "c_activityLevel": "Easy",
+      "c_portId": "RTB",
+      "c_portName": "Roatan (isla Tropicale), Honduras",
+      "c_excursionType": "S",
+      "c_productType": "shorex",
+      "c_analyticsCategory": "excursion",
+      "c_bvAverageRating": "3.5",
+      "c_bvReviewCount": "41",
+      "c_bvRatingRange": "5",
+      "c_categoryId": "excursions",
+      "c_minprice": 59.95,
+      "c_priceRanges": [
+        {
+          "minPrice": 59.95,
+          "maxPrice": 59.95,
+          "pricebook": "pcl-usd-sale-adult"
+        }
+      ],
+      "c_maxlistprice": 0.0
+    }
+  ],
+  "query": "",
+  "refinements": [
+    {
+      "attributeId": "c_destinationExperienceType",
+      "label": "Celebration Key"
+    },
+    {
+      "attributeId": "c_portId",
+      "label": "Days and Ports",
+      "values": [
+        {
+          "hitCount": 17,
+          "label": "BZE",
+          "value": "BZE"
+        },
+        {
+          "hitCount": 49,
+          "label": "CZM",
+          "value": "CZM"
+        },
+        {
+          "hitCount": 10,
+          "label": "FLL",
+          "value": "FLL"
+        },
+        {
+          "hitCount": 40,
+          "label": "RTB",
+          "value": "RTB"
+        }
+      ]
+    },
+    {
+      "attributeId": "price",
+      "label": "Price",
+      "values": [
+        {
+          "hitCount": 3,
+          "label": "Under $50.00",
+          "value": "(0..50)"
+        },
+        {
+          "hitCount": 42,
+          "label": "$50 - $99.99",
+          "value": "(50..100)"
+        },
+        {
+          "hitCount": 43,
+          "label": "$100 - $149.99",
+          "value": "(100..150)"
+        },
+        {
+          "hitCount": 18,
+          "label": "$150 - $199.99",
+          "value": "(150..200)"
+        },
+        {
+          "hitCount": 3,
+          "label": "$200 - $249.99",
+          "value": "(200..250)"
+        },
+        {
+          "hitCount": 8,
+          "label": "More than $300",
+          "value": "(300..10000000)"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_category",
+      "label": "Interest",
+      "values": [
+        {
+          "hitCount": 11,
+          "label": "Culinary & Beverage",
+          "value": "Culinary & Beverage"
+        },
+        {
+          "hitCount": 18,
+          "label": "Culture & History",
+          "value": "Culture & History"
+        },
+        {
+          "hitCount": 22,
+          "label": "Nature & Wildlife",
+          "value": "Nature & Wildlife"
+        },
+        {
+          "hitCount": 9,
+          "label": "Sightseeing",
+          "value": "Sightseeing"
+        },
+        {
+          "hitCount": 35,
+          "label": "Adventure",
+          "value": "Adventure"
+        },
+        {
+          "hitCount": 21,
+          "label": "Beach",
+          "value": "Beach"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_duration",
+      "label": "Duration",
+      "values": [
+        {
+          "hitCount": 11,
+          "label": "Up to 3 hours",
+          "value": "Up to 3 hours"
+        },
+        {
+          "hitCount": 82,
+          "label": "3 to 6 hours",
+          "value": "3 to 6 hours"
+        },
+        {
+          "hitCount": 23,
+          "label": "6+ hours",
+          "value": "6+ hours"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_activityLevel",
+      "label": "Activity Level",
+      "values": [
+        {
+          "hitCount": 51,
+          "label": "Easy",
+          "value": "Easy"
+        },
+        {
+          "hitCount": 48,
+          "label": "Moderate",
+          "value": "Moderate"
+        },
+        {
+          "hitCount": 16,
+          "label": "Strenuous",
+          "value": "Strenuous"
+        }
+      ]
+    },
+    {
+      "attributeId": "c_bvAverageRating",
+      "label": "Rating",
+      "values": [
+        {
+          "description": "5 stars",
+          "hitCount": 3,
+          "label": "5 stars",
+          "value": "5 stars"
+        },
+        {
+          "description": "4 stars & above",
+          "hitCount": 58,
+          "label": "4 stars",
+          "value": "4 stars"
+        },
+        {
+          "description": "3 stars & above",
+          "hitCount": 20,
+          "label": "3 stars",
+          "value": "3 stars"
+        },
+        {
+          "description": "2 stars & above",
+          "hitCount": 3,
+          "label": "2 stars",
+          "value": "2 stars"
+        },
+        {
+          "description": "Below 1",
+          "hitCount": 32,
+          "label": "Unrated",
+          "value": "Unrated"
+        }
+      ]
+    }
+  ],
+  "searchPhraseSuggestions": {},
+  "selectedRefinements": {
+    "cgid": "excursions",
+    "htype": "master|bundle|set",
+    "price": "(0..)",
+    "ilids": "4702"
+  },
+  "sortingOptions": [
+    {
+      "id": "Trending",
+      "label": "Trending"
+    },
+    {
+      "id": "recommended",
+      "label": "Recommended"
+    },
+    {
+      "id": "price-low-to-high",
+      "label": "Price"
+    },
+    {
+      "id": "durationlowtohigh",
+      "label": "Duration"
+    },
+    {
+      "id": "difficultylowtohigh",
+      "label": "Difficulty"
+    },
+    {
+      "id": "byName",
+      "label": "Name"
+    },
+    {
+      "id": "ratingshightolow",
+      "label": "Ratings"
+    }
+  ],
+  "offset": 0,
+  "total": 116
+}
