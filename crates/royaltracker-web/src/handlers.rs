@@ -262,6 +262,9 @@ pub async fn refresh_catalog(
         .into_iter()
         .find(|b| b.reservation_id == body.reservation_id)
         .ok_or((StatusCode::NOT_FOUND, "booking not found".into()))?;
+    if booking.has_departed(Utc::now().date_naive()) {
+        return Err((StatusCode::CONFLICT, "this cruise has already sailed".into()));
+    }
 
     if booking.brand == Brand::Princess {
         let persisted = royaltracker_core::refresh_princess_catalog(
@@ -352,6 +355,9 @@ pub struct BookingDto {
     /// just renders a head-count).
     #[serde(default)]
     pub shared_with: Vec<SharedSubscriberDto>,
+    /// The ship has sailed but the cruise isn't over: still listed, no longer
+    /// price-checked.
+    pub sailing_now: bool,
 }
 
 #[derive(Serialize)]
@@ -359,17 +365,27 @@ pub struct SharedSubscriberDto {
     pub display: Option<String>,
 }
 
+/// The caller's bookings that haven't ended yet. Ended cruises are hidden
+/// everywhere in the Mini App.
+async fn current_bookings_for(
+    s: &AppState,
+    user_id: i64,
+    today: chrono::NaiveDate,
+) -> Result<Vec<royaltracker_types::Booking>, ApiError> {
+    let mut mine = s.repo.list_bookings_for_user(user_id).await.map_err(db_err)?;
+    mine.retain(|b| !b.has_ended(today));
+    Ok(mine)
+}
+
 pub async fn list_bookings(
     State(s): State<Arc<AppState>>,
     user: AuthedUser,
 ) -> Result<Json<Vec<BookingDto>>, ApiError> {
-    let mine = s
-        .repo
-        .list_bookings_for_user(user.db_user.id)
-        .await
-        .map_err(db_err)?;
+    let today = Utc::now().date_naive();
+    let mine = current_bookings_for(&s, user.db_user.id, today).await?;
     let mut out = Vec::with_capacity(mine.len());
     for b in mine {
+        let sailing_now = b.has_departed(today);
         let subs = s
             .repo
             .list_subscribers_for_reservation(&b.reservation_id)
@@ -414,6 +430,7 @@ pub async fn list_bookings(
             height_tier,
             location_notes,
             shared_with,
+            sailing_now,
         });
     }
     Ok(Json(out))
@@ -522,11 +539,7 @@ pub async fn list_watched(
     State(s): State<Arc<AppState>>,
     user: AuthedUser,
 ) -> Result<Json<Vec<WatchedDto>>, ApiError> {
-    let mine = s
-        .repo
-        .list_bookings_for_user(user.db_user.id)
-        .await
-        .map_err(db_err)?;
+    let mine = current_bookings_for(&s, user.db_user.id, Utc::now().date_naive()).await?;
     let my_reservations: std::collections::HashSet<String> =
         mine.into_iter().map(|b| b.reservation_id).collect();
 

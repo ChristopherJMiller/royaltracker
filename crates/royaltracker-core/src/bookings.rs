@@ -162,9 +162,11 @@ pub async fn discover_with_clients(
             // For guarantee cabins, recover the real assigned room from the
             // reservation's purchased-order records (the room leaks there even
             // while the booking still displays "GTY"). Best-effort: a failure
-            // just leaves the cabin undiscovered this cycle.
+            // just leaves the cabin undiscovered this cycle. Skipped once the
+            // ship has sailed; the upsert keeps any cabin found earlier.
+            let sailed = sail_date <= chrono::Utc::now().date_naive();
             let assigned_stateroom = match (is_gty, passenger_id.as_deref(), sail_wire.as_deref()) {
-                (true, Some(pax), Some(sail)) if !own_pax_ids.is_empty() => {
+                (true, Some(pax), Some(sail)) if !own_pax_ids.is_empty() && !sailed => {
                     match client
                         .discover_assigned_stateroom(
                             brand,

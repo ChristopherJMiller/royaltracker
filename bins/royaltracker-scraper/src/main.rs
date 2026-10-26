@@ -148,6 +148,7 @@ async fn main() -> Result<()> {
         &dispatcher,
         &watched,
         &bookings_by_res,
+        chrono::Utc::now().date_naive(),
     )
     .await;
 
@@ -155,6 +156,7 @@ async fn main() -> Result<()> {
         snapshots = outcome.snapshots_written,
         diffs = outcome.diffs_detected,
         notified = outcome.diffs_notified,
+        skipped_departed = outcome.skipped_departed,
         watched = watched.len(),
         bookings = bookings_by_res.len(),
         "scrape complete"
