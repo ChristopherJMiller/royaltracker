@@ -60,6 +60,8 @@ fn row_to_booking(r: &PgRow) -> Result<Booking, sqlx::Error> {
         assigned_stateroom: r.try_get("assigned_stateroom")?,
         voyage_code: r.try_get("voyage_code")?,
         currency: r.try_get("currency")?,
+        deck_name: r.try_get("deck_name")?,
+        cabin_category: r.try_get("cabin_category")?,
     })
 }
 
@@ -293,8 +295,8 @@ impl PriceRepo for PostgresRepo {
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
                                   passenger_id, nights, package_code, stateroom, assigned_stateroom,
-                                  voyage_code, currency, sailing_id)
-            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                                  voyage_code, currency, sailing_id, deck_name, cabin_category)
+            VALUES ($1, $2::brand_kind, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $15, $16)
             ON CONFLICT (reservation_id) DO UPDATE SET
                 brand = EXCLUDED.brand,
                 account_id = EXCLUDED.account_id,
@@ -303,9 +305,12 @@ impl PriceRepo for PostgresRepo {
                 passenger_id = EXCLUDED.passenger_id,
                 nights = EXCLUDED.nights,
                 package_code = EXCLUDED.package_code,
-                stateroom = EXCLUDED.stateroom,
-                -- Keep a previously-discovered cabin if this refresh couldn't find one
-                -- (e.g. transient order-history error), rather than blanking it out.
+                -- Keep previously-discovered cabin details if this refresh couldn't find
+                -- them (e.g. a transient order-history or summary error) rather than
+                -- blanking them out.
+                stateroom = COALESCE(EXCLUDED.stateroom, bookings.stateroom),
+                deck_name = COALESCE(EXCLUDED.deck_name, bookings.deck_name),
+                cabin_category = COALESCE(EXCLUDED.cabin_category, bookings.cabin_category),
                 assigned_stateroom = COALESCE(EXCLUDED.assigned_stateroom, bookings.assigned_stateroom),
                 voyage_code = EXCLUDED.voyage_code,
                 currency = EXCLUDED.currency,
@@ -328,6 +333,8 @@ impl PriceRepo for PostgresRepo {
         .bind(&b.currency)
         .bind(sailing_id)
         .bind(brand_names(b.brand.line()))
+        .bind(&b.deck_name)
+        .bind(&b.cabin_category)
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() == 0 {
@@ -344,7 +351,7 @@ impl PriceRepo for PostgresRepo {
         let rows = sqlx::query(
             r#"SELECT reservation_id, brand::text AS brand, account_id, ship_code,
                       sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom,
-                      voyage_code, currency
+                      voyage_code, currency, deck_name, cabin_category
                FROM bookings ORDER BY sail_date"#,
         )
         .fetch_all(&self.pool)
@@ -356,7 +363,8 @@ impl PriceRepo for PostgresRepo {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand::text AS brand, b.account_id, b.ship_code,
                       b.sail_date, b.passenger_id, b.nights, b.package_code,
-                      b.stateroom, b.assigned_stateroom, b.voyage_code, b.currency
+                      b.stateroom, b.assigned_stateroom, b.voyage_code, b.currency,
+                      b.deck_name, b.cabin_category
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = $1

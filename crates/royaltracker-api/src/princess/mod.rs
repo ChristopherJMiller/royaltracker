@@ -7,7 +7,8 @@ mod catalog;
 mod schedule;
 
 pub use account::{
-    basic_auth_value, parse_departure, parse_keep_alive, PrincessAccountClient, PrincessBookingContext,
+    basic_auth_value, parse_booking_summary, parse_departure, parse_keep_alive, summary_app_id,
+    PrincessAccountClient, PrincessBookingContext, PrincessCabin,
 };
 pub use catalog::{apply_product_details, category_name, parse_search_hits};
 pub use schedule::{parse_schedule, PrincessVoyage};

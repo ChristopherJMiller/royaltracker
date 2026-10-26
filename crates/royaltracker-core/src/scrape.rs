@@ -283,6 +283,8 @@ fn itinerary_label(b: &Booking) -> String {
         s.push_str(&format!(" · cabin {cabin}{suffix}"));
         if let Some(deck) = royaltracker_types::deck_of_cabin(cabin) {
             s.push_str(&format!(" · deck {deck}"));
+        } else if let Some(name) = &b.deck_name {
+            s.push_str(&format!(" · {name} deck"));
         }
     } else if b.stateroom.as_deref() == Some("GTY") {
         s.push_str(" · GTY");
@@ -338,6 +340,8 @@ mod tests {
             assigned_stateroom: None,
             voyage_code: None,
             currency: None,
+            deck_name: None,
+            cabin_category: None,
         }
     }
 

@@ -206,6 +206,8 @@ pub async fn discover_with_clients(
                 assigned_stateroom,
                 voyage_code: None,
                 currency: None,
+                deck_name: None,
+                cabin_category: None,
             };
 
             if let Err(e) = repo.upsert_booking(&booking).await {

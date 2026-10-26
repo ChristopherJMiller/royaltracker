@@ -13,7 +13,8 @@ use tracing::warn;
 pub const PRINCESS_NO_BOOKING_MSG: &str =
     "Signed in to Princess, but couldn't open a booking — multi-booking accounts aren't supported yet.";
 
-/// Map a Princess booking context to a `Booking`. Only tracking fields are kept.
+/// Map a Princess booking context to a `Booking`: tracking fields plus the cabin
+/// when `booking/summary` reported one.
 pub fn booking_from_context(ctx: &PrincessBookingContext, account_id: i64) -> Booking {
     Booking {
         reservation_id: ctx.booking_id.clone(),
@@ -24,10 +25,12 @@ pub fn booking_from_context(ctx: &PrincessBookingContext, account_id: i64) -> Bo
         passenger_id: Some(ctx.pax_id.clone()),
         nights: ctx.nights,
         package_code: None,
-        stateroom: None,
+        stateroom: ctx.cabin.as_ref().map(|c| c.number.clone()),
         assigned_stateroom: None,
         voyage_code: Some(ctx.voyage_code.clone()),
         currency: Some(ctx.currency.clone()),
+        deck_name: ctx.cabin.as_ref().and_then(|c| c.deck_name.clone()),
+        cabin_category: ctx.cabin.as_ref().and_then(|c| c.category.clone()),
     }
 }
 
@@ -297,6 +300,7 @@ pub fn princess_fetch_outcome(products: HashMap<String, PublicProduct>) -> Publi
 mod tests {
     use super::*;
     use crate::bookings::login_outcome;
+    use royaltracker_api::princess::PrincessCabin;
     use chrono::NaiveDate;
 
     fn prod(code: &str) -> PublicProduct {
@@ -446,6 +450,7 @@ mod tests {
             nights: Some(7),
             sail_date: NaiveDate::from_ymd_opt(2027, 3, 1).unwrap(),
             currency: "USD".into(),
+            cabin: None,
         }
     }
 
@@ -459,6 +464,22 @@ mod tests {
         assert_eq!(b.currency.as_deref(), Some("USD"));
         assert_eq!(b.passenger_id.as_deref(), Some("P1"));
         assert!(b.stateroom.is_none() && b.assigned_stateroom.is_none() && b.package_code.is_none());
+        assert!(b.deck_name.is_none() && b.cabin_category.is_none());
+    }
+
+    #[test]
+    fn booking_from_context_carries_the_cabin() {
+        let mut c = ctx();
+        c.cabin = Some(PrincessCabin {
+            number: "D123".into(),
+            deck_name: Some("Dolphin".into()),
+            category: None,
+        });
+        let b = booking_from_context(&c, 7);
+        assert_eq!(b.stateroom.as_deref(), Some("D123"));
+        assert_eq!(b.deck_name.as_deref(), Some("Dolphin"));
+        assert_eq!(b.cabin_category, None);
+        assert_eq!(b.assigned_stateroom, None, "Princess has no GTY recovery");
     }
 
     #[test]

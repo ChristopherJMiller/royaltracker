@@ -47,6 +47,8 @@ fn booking(id: &str, brand: Brand, voyage: Option<&str>, currency: Option<&str>)
         assigned_stateroom: None,
         voyage_code: voyage.map(str::to_string),
         currency: currency.map(str::to_string),
+        deck_name: None,
+        cabin_category: None,
     }
 }
 
@@ -231,4 +233,30 @@ async fn search_catalog_scoped_to_user() {
     let hits = r.search_catalog(b, "soda", 10).await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].reservation_id, "BBB2222");
+}
+
+#[tokio::test]
+async fn cabin_details_round_trip_and_survive_a_blank_refresh() {
+    let r = repo().await;
+    let uid = user(&r, 1).await;
+    let mut b = booking("AB12CD", Brand::Princess, Some("X637"), Some("USD"));
+    b.stateroom = Some("D123".into());
+    b.deck_name = Some("Dolphin".into());
+    b.cabin_category = Some("Deluxe Balcony".into());
+    r.upsert_booking(&b).await.unwrap();
+    r.subscribe_user_to_booking("AB12CD", uid).await.unwrap();
+
+    // A later refresh that couldn't read the cabin keeps what we had.
+    let mut blank = b.clone();
+    blank.stateroom = None;
+    blank.deck_name = None;
+    blank.cabin_category = None;
+    r.upsert_booking(&blank).await.unwrap();
+
+    let got = r.list_bookings_for_user(uid).await.unwrap();
+    assert_eq!(got[0].stateroom.as_deref(), Some("D123"));
+    assert_eq!(got[0].deck_name.as_deref(), Some("Dolphin"));
+    assert_eq!(got[0].cabin_category.as_deref(), Some("Deluxe Balcony"));
+    let all = r.list_bookings().await.unwrap();
+    assert_eq!(all[0].deck_name.as_deref(), Some("Dolphin"));
 }

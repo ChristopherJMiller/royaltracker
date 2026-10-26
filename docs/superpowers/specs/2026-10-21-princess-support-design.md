@@ -319,6 +319,7 @@ Common traits:
      - `paxList.paxes[] {seqNumber, pastPaxStatusName (tier), ageCode, …}` plus heavy PII (don't persist);
      - `specialServices.items[] {type, number, desc, paxIncluded}` (e.g. a Premier package);
      - pricing.
+     - the cabin: `cabinNumber` (deck letter + number, e.g. `D123`), `deck` (e.g. `DOLPHIN`), `categoryName`. The account client reads these once per login, right after `sfccKeepAlive`, best-effort (added 2026-10-26).
 
 ### 9.2 Prices (no account; guest)
 

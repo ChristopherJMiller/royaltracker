@@ -256,7 +256,9 @@ function Stateroom({ booking, detailed }) {
   const isGty = displayed === "GTY" || (!displayed && !!hidden);
   const room = hidden || (displayed && displayed !== "GTY" ? displayed : null);
   const deck = deckOf(room);
-  const deckTag = deck ? html`<span class="text-tg-hint"> · Deck ${deck}</span>` : "";
+  // Princess names its decks ("Dolphin") and its cabin numbers carry no deck number.
+  const deckLabel = deck ? `Deck ${deck}` : booking.deck_name ? `${booking.deck_name} deck` : null;
+  const deckTag = deckLabel ? html`<span class="text-tg-hint"> · ${deckLabel}</span>` : "";
 
   if (isGty && hidden) {
     return html`
@@ -360,6 +362,9 @@ function BookingHeader({ booking }) {
       </div>
       ${(booking.stateroom || booking.assigned_stateroom)
         ? html`<div class="text-sm pt-1"><${Stateroom} booking=${booking} detailed=${true} /></div>`
+        : null}
+      ${booking.cabin_category
+        ? html`<div class="text-xs text-tg-hint">${booking.cabin_category}</div>`
         : null}
       ${shared ? html`<div class="text-xs text-tg-hint pt-1">${shared}</div>` : null}
     </div>`;

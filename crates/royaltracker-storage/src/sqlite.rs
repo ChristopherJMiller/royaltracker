@@ -307,8 +307,8 @@ impl PriceRepo for SqliteRepo {
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
                                   passenger_id, nights, package_code, stateroom, assigned_stateroom,
-                                  voyage_code, currency, sailing_id)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                                  voyage_code, currency, sailing_id, deck_name, cabin_category)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(reservation_id) DO UPDATE SET
                 brand = excluded.brand,
                 account_id = excluded.account_id,
@@ -317,9 +317,12 @@ impl PriceRepo for SqliteRepo {
                 passenger_id = excluded.passenger_id,
                 nights = excluded.nights,
                 package_code = excluded.package_code,
-                stateroom = excluded.stateroom,
-                -- Keep a previously-discovered cabin if this refresh couldn't find one
-                -- (e.g. transient order-history error), rather than blanking it out.
+                -- Keep previously-discovered cabin details if this refresh couldn't find
+                -- them (e.g. a transient order-history or summary error) rather than
+                -- blanking them out.
+                stateroom = COALESCE(excluded.stateroom, bookings.stateroom),
+                deck_name = COALESCE(excluded.deck_name, bookings.deck_name),
+                cabin_category = COALESCE(excluded.cabin_category, bookings.cabin_category),
                 assigned_stateroom = COALESCE(excluded.assigned_stateroom, bookings.assigned_stateroom),
                 voyage_code = excluded.voyage_code,
                 currency = excluded.currency,
@@ -342,6 +345,8 @@ impl PriceRepo for SqliteRepo {
         .bind(&b.voyage_code)
         .bind(&b.currency)
         .bind(sailing_id)
+        .bind(&b.deck_name)
+        .bind(&b.cabin_category)
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() == 0 {
@@ -356,7 +361,7 @@ impl PriceRepo for SqliteRepo {
 
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
-            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom, voyage_code, currency FROM bookings ORDER BY sail_date",
+            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom, voyage_code, currency, deck_name, cabin_category FROM bookings ORDER BY sail_date",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -368,7 +373,7 @@ impl PriceRepo for SqliteRepo {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand, b.account_id, b.ship_code, b.sail_date,
                       b.passenger_id, b.nights, b.package_code, b.stateroom, b.assigned_stateroom,
-                      b.voyage_code, b.currency
+                      b.voyage_code, b.currency, b.deck_name, b.cabin_category
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = ?1
@@ -1164,6 +1169,8 @@ fn row_to_booking_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<Booking, StorageE
         assigned_stateroom: r.try_get("assigned_stateroom")?,
         voyage_code: r.try_get("voyage_code")?,
         currency: r.try_get("currency")?,
+        deck_name: r.try_get("deck_name")?,
+        cabin_category: r.try_get("cabin_category")?,
     })
 }
 

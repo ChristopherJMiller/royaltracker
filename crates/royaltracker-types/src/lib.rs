@@ -208,6 +208,13 @@ pub struct Booking {
     /// ISO currency of the account's prices; `None` means USD.
     #[serde(default)]
     pub currency: Option<String>,
+    /// Deck name when the line names its decks (Princess: `Dolphin`). RCG
+    /// decks are numbered and derived from the cabin instead, so `None`.
+    #[serde(default)]
+    pub deck_name: Option<String>,
+    /// Cabin category as the line describes it (Princess: `Deluxe Balcony`).
+    #[serde(default)]
+    pub cabin_category: Option<String>,
 }
 
 impl Booking {
@@ -750,6 +757,8 @@ mod tests {
             assigned_stateroom: None,
             voyage_code: None,
             currency: None,
+            deck_name: None,
+            cabin_category: None,
         }
     }
 
