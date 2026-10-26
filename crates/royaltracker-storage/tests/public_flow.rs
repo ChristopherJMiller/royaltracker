@@ -159,3 +159,17 @@ async fn public_prices_use_sailing_currency_and_unit_label() {
     assert_eq!(p[0].price_label.as_deref(), Some("$87.99"));
     assert_eq!(p[0].unit_label, None);
 }
+
+#[tokio::test]
+async fn sailings_stop_being_swept_on_sail_day() {
+    let r = repo().await;
+    let today = chrono::Utc::now().date_naive();
+    let mut ids = Vec::new();
+    for (i, date) in [today - chrono::Days::new(1), today, today + chrono::Days::new(1)].into_iter().enumerate() {
+        let key = SailingKey { brand: Brand::Royal, ship_code: "ST", sail_date: date, voyage_code: None };
+        let sid = r.upsert_sailing(&key, None).await.unwrap();
+        ids.push(r.upsert_tracked_product(sid, &format!("P{i}"), "drinks", None, None).await.unwrap());
+    }
+    let due: Vec<i64> = r.list_sailings_to_scrape().await.unwrap().iter().map(|t| t.tracked_id).collect();
+    assert_eq!(due, vec![ids[2]], "only the sailing that hasn't left yet");
+}

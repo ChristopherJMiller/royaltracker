@@ -259,4 +259,15 @@ async fn cabin_details_round_trip_and_survive_a_blank_refresh() {
     assert_eq!(got[0].cabin_category.as_deref(), Some("Deluxe Balcony"));
     let all = r.list_bookings().await.unwrap();
     assert_eq!(all[0].deck_name.as_deref(), Some("Dolphin"));
+
+    // A move to a new cabin doesn't inherit the old cabin's deck or category.
+    let mut moved = b.clone();
+    moved.stateroom = Some("C456".into());
+    moved.deck_name = None;
+    moved.cabin_category = Some("Inside".into());
+    r.upsert_booking(&moved).await.unwrap();
+    let got = r.list_bookings_for_user(uid).await.unwrap();
+    assert_eq!(got[0].stateroom.as_deref(), Some("C456"));
+    assert_eq!(got[0].deck_name, None);
+    assert_eq!(got[0].cabin_category.as_deref(), Some("Inside"));
 }

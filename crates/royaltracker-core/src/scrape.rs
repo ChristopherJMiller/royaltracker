@@ -368,4 +368,21 @@ mod tests {
         // Upcoming watches stay, and an orphan watch is kept so the loop logs it.
         assert_eq!(live.iter().map(|w| w.id).collect::<Vec<_>>(), vec![3, 4, 5]);
     }
+
+    #[test]
+    fn alert_label_names_a_princess_deck() {
+        let mut b = booking("AB12CD", NaiveDate::from_ymd_opt(2027, 3, 1).unwrap());
+        b.brand = Brand::Princess;
+        b.ship_code = "XP".into();
+        b.stateroom = Some("D123".into());
+        b.deck_name = Some("Dolphin".into());
+        assert_eq!(
+            itinerary_label(&b),
+            "Discovery Princess · 7 nights · Mar 1, 2027 · cabin D123 · Dolphin deck"
+        );
+        b.brand = Brand::Royal;
+        b.ship_code = "ST".into();
+        b.stateroom = Some("9434".into());
+        assert!(itinerary_label(&b).ends_with("· cabin 9434 · deck 9"), "a numbered deck wins");
+    }
 }

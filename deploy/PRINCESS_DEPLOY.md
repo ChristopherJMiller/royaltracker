@@ -51,17 +51,23 @@ forward** with a fix. Don't try to revert the migrations.
 
 A plain tag rollback won't even boot once the new image has run. The old
 image's sqlx migrator refuses a database that has applied migrations it
-doesn't know, so it exits with a `db migrate` error (`VersionMissing(12)`). To
-roll back inside the safe window anyway, set those two bookkeeping rows aside
-first (the schema changes stay):
+doesn't know, so it exits with a `db migrate` error (`VersionMissing(N)`). This
+holds for **every** later migration too, including additive ones like 0014. To
+roll back anyway, set aside the bookkeeping rows newer than the target image's
+last migration (the schema changes stay). `N` is that last migration: 13 for
+`ab2e60a` (the first Princess image), 9 for `fa861d2` (before the public tier).
 
 ```sql
-CREATE TABLE _sqlx_migrations_princess AS SELECT * FROM _sqlx_migrations WHERE version IN (12, 13);
-DELETE FROM _sqlx_migrations WHERE version IN (12, 13);
+CREATE TABLE _sqlx_migrations_princess AS SELECT * FROM _sqlx_migrations WHERE version > N;
+DELETE FROM _sqlx_migrations WHERE version > N;
 ```
 
-Put them back **before** rolling forward again. Otherwise 0013 re-runs and fails
-on the existing `cruise_accounts` table:
+0014 (`bookings.deck_name`, `cabin_category`) only adds nullable columns the
+older images never read, so rolling back to `ab2e60a` costs nothing beyond this
+bookkeeping step.
+
+Put them back **before** rolling forward again. Otherwise the set-aside
+migrations re-run, and 0013 fails on the existing `cruise_accounts` table:
 
 ```sql
 INSERT INTO _sqlx_migrations SELECT * FROM _sqlx_migrations_princess;
