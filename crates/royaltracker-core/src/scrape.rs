@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use crate::princess::PrincessPriceCache;
 use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{CruiseClient, ProductPrice};
@@ -14,6 +14,8 @@ pub struct ScrapeOutcome {
     pub snapshots_written: usize,
     pub diffs_detected: usize,
     pub diffs_notified: usize,
+    /// Watches not fetched because their booking has sailed.
+    pub skipped_departed: usize,
 }
 
 /// One scrape pass over all active watched products.
@@ -26,7 +28,8 @@ pub struct ScrapeOutcome {
 /// `clients_by_brand` is the pool of authenticated clients to use for price
 /// fetches — typically one per brand, sourced from any user's discovery
 /// login. A watched product whose booking's brand has no client in the pool
-/// is skipped with a warning.
+/// is skipped with a warning. Watches on bookings that have sailed (as of
+/// `today`, UTC) are skipped without a fetch.
 pub async fn run_scrape_cycle(
     clients_by_brand: &HashMap<Brand, CruiseClient>,
     princess: Option<&PrincessGuestClient>,
@@ -34,18 +37,23 @@ pub async fn run_scrape_cycle(
     notifier: &dyn Notifier,
     watched: &[WatchedProduct],
     bookings_by_res: &HashMap<String, Booking>,
+    today: NaiveDate,
 ) -> ScrapeOutcome {
     let mut snapshots_written = 0;
     let mut diffs_detected = 0;
     let mut diffs_notified = 0;
     let mut diffs_to_mark: Vec<i64> = Vec::new();
+    let (watched, skipped_departed) = watches_to_price(watched, bookings_by_res, today);
+    if skipped_departed > 0 {
+        info!(skipped_departed, "skipping watches on bookings that have sailed");
+    }
 
     // Pre-load the catalog cache so diff messages can include MSRP. Keyed by
     // (reservation_id, product_code). One DB query per unique reservation
     // referenced by an active watch.
     let mut catalog_index: HashMap<(String, String), CatalogEntry> = HashMap::new();
     let mut loaded_reservations: HashSet<String> = Default::default();
-    for w in watched {
+    for w in &watched {
         if loaded_reservations.insert(w.reservation_id.clone()) {
             if let Ok(entries) = repo.list_catalog_by_reservation(&w.reservation_id).await {
                 for e in entries {
@@ -231,7 +239,23 @@ pub async fn run_scrape_cycle(
         snapshots_written,
         diffs_detected,
         diffs_notified,
+        skipped_departed,
     }
+}
+
+/// The watches still worth pricing, plus how many were dropped because their
+/// booking has sailed. A watch with no booking row is kept so the loop logs it.
+fn watches_to_price<'a>(
+    watched: &'a [WatchedProduct],
+    bookings_by_res: &HashMap<String, Booking>,
+    today: NaiveDate,
+) -> (Vec<&'a WatchedProduct>, usize) {
+    let (live, departed): (Vec<_>, Vec<_>) = watched.iter().partition(|w| {
+        bookings_by_res
+            .get(&w.reservation_id)
+            .is_none_or(|b| !b.has_departed(today))
+    });
+    (live, departed.len())
 }
 
 /// Human label for the sailing a price alert belongs to, e.g.
@@ -280,4 +304,64 @@ fn into_snapshot(watched_id: i64, p: &ProductPrice) -> PriceSnapshot {
 #[allow(dead_code)]
 fn _diff_compile_check(d: Diff) -> Diff {
     d
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use royaltracker_types::AlertMode;
+
+    fn watch(id: i64, res: &str) -> WatchedProduct {
+        WatchedProduct {
+            id,
+            reservation_id: res.into(),
+            category_prefix: "pkg".into(),
+            product_code: format!("P{id}"),
+            label: None,
+            active: true,
+            alert_mode: AlertMode::AnyDrop,
+            alert_threshold: None,
+        }
+    }
+
+    fn booking(res: &str, sail: NaiveDate) -> Booking {
+        Booking {
+            reservation_id: res.into(),
+            brand: Brand::Royal,
+            account_id: "a".into(),
+            ship_code: "ST".into(),
+            sail_date: sail,
+            passenger_id: None,
+            nights: Some(7),
+            package_code: None,
+            stateroom: None,
+            assigned_stateroom: None,
+            voyage_code: None,
+            currency: None,
+        }
+    }
+
+    #[test]
+    fn sailed_bookings_are_not_priced() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        let bookings: HashMap<String, Booking> = [
+            booking("1111111", NaiveDate::from_ymd_opt(2026, 9, 4).unwrap()),
+            booking("2222222", today),
+            booking("3333333", NaiveDate::from_ymd_opt(2027, 2, 7).unwrap()),
+        ]
+        .into_iter()
+        .map(|b| (b.reservation_id.clone(), b))
+        .collect();
+        let watched = vec![
+            watch(1, "1111111"),
+            watch(2, "2222222"),
+            watch(3, "3333333"),
+            watch(4, "3333333"),
+            watch(5, "9999999"),
+        ];
+        let (live, skipped) = watches_to_price(&watched, &bookings, today);
+        assert_eq!(skipped, 2);
+        // Upcoming watches stay, and an orphan watch is kept so the loop logs it.
+        assert_eq!(live.iter().map(|w| w.id).collect::<Vec<_>>(), vec![3, 4, 5]);
+    }
 }

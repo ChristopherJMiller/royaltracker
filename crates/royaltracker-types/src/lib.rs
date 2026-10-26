@@ -215,6 +215,19 @@ impl Booking {
     pub fn is_gty(&self) -> bool {
         self.stateroom.as_deref() == Some("GTY")
     }
+
+    /// The ship has sailed (`today` is the UTC date). Add-ons can no longer be
+    /// bought, so price checks, catalog refreshes and cabin lookups stop.
+    pub fn has_departed(&self, today: NaiveDate) -> bool {
+        self.sail_date <= today
+    }
+
+    /// The cruise is over: the day after disembarkation (sail date + nights) has
+    /// arrived. Ended bookings are hidden. An unknown length counts as zero nights.
+    pub fn has_ended(&self, today: NaiveDate) -> bool {
+        let nights = self.nights.and_then(|n| u64::try_from(n).ok()).unwrap_or(0);
+        self.sail_date + chrono::Days::new(nights) < today
+    }
 }
 
 /// Map a brand + two-letter ship code to its full name. RCG and Princess reuse
@@ -721,6 +734,46 @@ mod tests {
     fn princess_has_no_cabin_location() {
         assert!(cabin_location(Brand::Princess, "XP", "9434").is_none());
         assert!(cabin_location(Brand::Royal, "WN", "9434").is_some());
+    }
+
+    fn booking_sailing(sail: (i32, u32, u32), nights: Option<i32>) -> Booking {
+        Booking {
+            reservation_id: "1234567".into(),
+            brand: Brand::Royal,
+            account_id: "a".into(),
+            ship_code: "ST".into(),
+            sail_date: NaiveDate::from_ymd_opt(sail.0, sail.1, sail.2).unwrap(),
+            passenger_id: None,
+            nights,
+            package_code: None,
+            stateroom: None,
+            assigned_stateroom: None,
+            voyage_code: None,
+            currency: None,
+        }
+    }
+
+    #[test]
+    fn departed_from_sail_day_on() {
+        let d = |m, day| NaiveDate::from_ymd_opt(2027, m, day).unwrap();
+        let b = booking_sailing((2027, 2, 7), Some(7));
+        assert!(!b.has_departed(d(2, 6)));
+        assert!(b.has_departed(d(2, 7)), "sail day itself is too late to buy add-ons");
+        assert!(b.has_departed(d(2, 10)));
+    }
+
+    #[test]
+    fn ended_the_day_after_disembarking() {
+        let d = |m, day| NaiveDate::from_ymd_opt(2027, m, day).unwrap();
+        let b = booking_sailing((2027, 2, 7), Some(7));
+        assert!(!b.has_ended(d(2, 10)), "mid-cruise stays visible");
+        assert!(!b.has_ended(d(2, 14)), "disembarkation day stays visible");
+        assert!(b.has_ended(d(2, 15)));
+        let unknown = booking_sailing((2027, 2, 7), None);
+        assert!(!unknown.has_ended(d(2, 7)));
+        assert!(unknown.has_ended(d(2, 8)));
+        let negative = booking_sailing((2027, 2, 7), Some(-3));
+        assert!(negative.has_ended(d(2, 8)), "nonsense nights count as zero");
     }
 
     #[test]

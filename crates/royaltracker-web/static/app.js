@@ -324,7 +324,7 @@ function BookingsList({ bookings, onOpen, onRefresh }) {
                   </div>
                   <div class="text-right">
                     <div class="text-xs text-tg-hint">${brandLabel(b.brand)}</div>
-                    <div class="text-xs text-tg-hint mt-0.5">${daysUntil(b.sail_date)}</div>
+                    <div class="text-xs text-tg-hint mt-0.5">${b.sailing_now ? "⛴ sailing now" : daysUntil(b.sail_date)}</div>
                   </div>
                 </div>
               </button>`)
@@ -352,7 +352,9 @@ function BookingHeader({ booking }) {
         <div>
           <div class="text-lg font-semibold">${shipName(booking)}</div>
           <div class="text-sm text-tg-hint">${[nights, fmtSailDate(booking.sail_date)].filter(Boolean).join(" · ")}</div>
-          <div class="text-xs text-tg-hint mt-1">${daysUntil(booking.sail_date)}</div>
+          <div class="text-xs text-tg-hint mt-1">${booking.sailing_now
+            ? "⛴ Sailing now · price checks have stopped"
+            : daysUntil(booking.sail_date)}</div>
         </div>
         <div class="text-xs text-tg-hint">${brandLabel(booking.brand)}</div>
       </div>
@@ -638,8 +640,9 @@ function BookingView({ booking, watched, catalog, onBack, onOpenWatched, refresh
       <${LocationPanel} booking=${booking} />
       <${WatchedList} watched=${watched} booking=${booking}
                       onOpen=${onOpenWatched} onRemove=${removeWatched} />
-      <${CatalogBrowser} booking=${booking} catalog=${catalog}
-                         onAdd=${addWatched} onRefreshCatalog=${refreshCatalog} />
+      ${!booking.sailing_now && html`
+        <${CatalogBrowser} booking=${booking} catalog=${catalog}
+                           onAdd=${addWatched} onRefreshCatalog=${refreshCatalog} />`}
     </section>`;
 }
 
