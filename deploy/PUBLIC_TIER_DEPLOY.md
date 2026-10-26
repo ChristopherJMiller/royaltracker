@@ -75,7 +75,7 @@ Argo rolls the bot pod (Recreate). Read-only lookup works immediately; subscribe
 lights up once Turnstile + VAPID secrets are present.
 
 ### Sanity checks
-- `GET https://<host>/public/ships` → 40 ships.
+- `GET https://<host>/public/ships` → every ship in `all_ships()` (62: 30 Royal, 15 Celebrity, 17 Princess).
 - `GET https://<host>/public/config` → `subscribe_enabled: true`, a turnstile site key, a VAPID public key.
 - `GET https://<host>/p` → the lookup PWA.
 - The daily scraper CronJob logs `public sweep complete` and refreshes tracked sailings.

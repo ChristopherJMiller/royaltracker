@@ -217,95 +217,41 @@ impl Booking {
     }
 }
 
-/// Map a brand + two-letter ship code to its full name. Codes are only unique
-/// within a brand (`EP`/`SU` exist on several). The web Mini App gets ship names
-/// from the server rather than keeping its own table. Returns `None` for unknown
-/// codes so callers can fall back to the raw code.
+/// Map a brand + two-letter ship code to its full name. RCG and Princess reuse
+/// codes for different ships (`ST`, `EX`), so the brand is part of the key. The
+/// web Mini App gets ship names from the server rather than keeping its own
+/// table. Returns `None` for unknown codes so callers can fall back to the raw code.
 pub fn ship_name(brand: Brand, code: &str) -> Option<&'static str> {
-    let name = match (brand, code) {
-        // Celebrity
-        (Brand::Celebrity, "AS") => "Celebrity Ascent",
-        (Brand::Celebrity, "AX") => "Celebrity Apex",
-        (Brand::Celebrity, "BE") => "Celebrity Beyond",
-        (Brand::Celebrity, "EC") => "Celebrity Eclipse",
-        (Brand::Celebrity, "ED") => "Celebrity Edge",
-        (Brand::Celebrity, "EQ") => "Celebrity Equinox",
-        (Brand::Celebrity, "IN") => "Celebrity Infinity",
-        (Brand::Celebrity, "MI") => "Celebrity Millennium",
-        (Brand::Celebrity, "RF") => "Celebrity Reflection",
-        (Brand::Celebrity, "SI") => "Celebrity Silhouette",
-        (Brand::Celebrity, "SL") => "Celebrity Solstice",
-        (Brand::Celebrity, "SU") => "Celebrity Summit",
-        (Brand::Celebrity, "XC") => "Celebrity Xcel",
-        // Royal Caribbean
-        (Brand::Royal, "AD") => "Adventure of the Seas",
-        (Brand::Royal, "AL") => "Allure of the Seas",
-        (Brand::Royal, "AN") => "Anthem of the Seas",
-        (Brand::Royal, "BR") => "Brilliance of the Seas",
-        (Brand::Royal, "EN") => "Enchantment of the Seas",
-        (Brand::Royal, "EP") => "Explorer of the Seas",
-        (Brand::Royal, "FR") => "Freedom of the Seas",
-        (Brand::Royal, "GR") => "Grandeur of the Seas",
-        (Brand::Royal, "HM") => "Harmony of the Seas",
-        (Brand::Royal, "IC") => "Icon of the Seas",
-        (Brand::Royal, "JW") => "Jewel of the Seas",
-        (Brand::Royal, "LB") => "Liberty of the Seas",
-        (Brand::Royal, "MA") => "Mariner of the Seas",
-        (Brand::Royal, "NV") => "Navigator of the Seas",
-        (Brand::Royal, "OA") => "Oasis of the Seas",
-        (Brand::Royal, "OD") => "Odyssey of the Seas",
-        (Brand::Royal, "OV") => "Ovation of the Seas",
-        (Brand::Royal, "QN") => "Quantum of the Seas",
-        (Brand::Royal, "RD") => "Radiance of the Seas",
-        (Brand::Royal, "RH") => "Rhapsody of the Seas",
-        (Brand::Royal, "SP") => "Spectrum of the Seas",
-        (Brand::Royal, "SR") => "Star of the Seas",
-        (Brand::Royal, "SY") => "Symphony of the Seas",
-        (Brand::Royal, "UT") => "Utopia of the Seas",
-        (Brand::Royal, "VS") => "Vision of the Seas",
-        (Brand::Royal, "VY") => "Voyager of the Seas",
-        (Brand::Royal, "WN") => "Wonder of the Seas",
-        // Princess
-        (Brand::Princess, "AP") => "Grand Princess",
-        (Brand::Princess, "CB") => "Caribbean Princess",
-        (Brand::Princess, "CO") => "Coral Princess",
-        (Brand::Princess, "DI") => "Diamond Princess",
-        (Brand::Princess, "EP") => "Emerald Princess",
-        (Brand::Princess, "EX") => "Enchanted Princess",
-        (Brand::Princess, "GP") => "Regal Princess",
-        (Brand::Princess, "IP") => "Island Princess",
-        (Brand::Princess, "KP") => "Crown Princess",
-        (Brand::Princess, "MJ") => "Majestic Princess",
-        (Brand::Princess, "RP") => "Royal Princess",
-        (Brand::Princess, "RU") => "Ruby Princess",
-        (Brand::Princess, "SA") => "Sapphire Princess",
-        (Brand::Princess, "ST") => "Star Princess",
-        (Brand::Princess, "SU") => "Sun Princess",
-        (Brand::Princess, "XP") => "Discovery Princess",
-        (Brand::Princess, "YP") => "Sky Princess",
-        _ => return None,
-    };
-    Some(name)
+    all_ships()
+        .iter()
+        .find(|(c, _, b)| *b == brand && *c == code)
+        .map(|(_, name, _)| *name)
 }
 
-/// Every ship we know a name for, as `(code, name, brand)`. Backs the public
-/// tier's ship picker so a user can look up any sailing before anyone has tracked
-/// it. Keep in sync with `ship_name` (the Mini App fetches this list from the server).
+/// Every ship we know a name for, as `(code, name, brand)`, and the single
+/// source for [`ship_name`]. Backs the public tier's ship picker so a user can
+/// look up any sailing before anyone has tracked it.
+///
+/// RCG codes are the ones `aws-prd.api.rccl.com/en/{brand}/web/v3/ships/{code}/voyages`
+/// answers to (one code space across Royal and Celebrity), confirmed 2026-10-26
+/// by voyages plus deck counts. Princess codes come from `resdb/p1.0/ships`.
 pub fn all_ships() -> &'static [(&'static str, &'static str, Brand)] {
     &[
         // Celebrity
-        ("AS", "Celebrity Ascent", Brand::Celebrity),
+        ("AT", "Celebrity Ascent", Brand::Celebrity),
         ("AX", "Celebrity Apex", Brand::Celebrity),
-        ("BE", "Celebrity Beyond", Brand::Celebrity),
+        ("BY", "Celebrity Beyond", Brand::Celebrity),
+        ("CS", "Celebrity Constellation", Brand::Celebrity),
         ("EC", "Celebrity Eclipse", Brand::Celebrity),
-        ("ED", "Celebrity Edge", Brand::Celebrity),
+        ("EG", "Celebrity Edge", Brand::Celebrity),
         ("EQ", "Celebrity Equinox", Brand::Celebrity),
+        ("FL", "Celebrity Flora", Brand::Celebrity),
         ("IN", "Celebrity Infinity", Brand::Celebrity),
-        ("MI", "Celebrity Millennium", Brand::Celebrity),
+        ("ML", "Celebrity Millennium", Brand::Celebrity),
         ("RF", "Celebrity Reflection", Brand::Celebrity),
         ("SI", "Celebrity Silhouette", Brand::Celebrity),
         ("SL", "Celebrity Solstice", Brand::Celebrity),
-        ("SU", "Celebrity Summit", Brand::Celebrity),
+        ("SM", "Celebrity Summit", Brand::Celebrity),
         ("XC", "Celebrity Xcel", Brand::Celebrity),
         // Royal Caribbean
         ("AD", "Adventure of the Seas", Brand::Royal),
@@ -313,26 +259,29 @@ pub fn all_ships() -> &'static [(&'static str, &'static str, Brand)] {
         ("AN", "Anthem of the Seas", Brand::Royal),
         ("BR", "Brilliance of the Seas", Brand::Royal),
         ("EN", "Enchantment of the Seas", Brand::Royal),
-        ("EP", "Explorer of the Seas", Brand::Royal),
+        ("EX", "Explorer of the Seas", Brand::Royal),
         ("FR", "Freedom of the Seas", Brand::Royal),
         ("GR", "Grandeur of the Seas", Brand::Royal),
         ("HM", "Harmony of the Seas", Brand::Royal),
         ("IC", "Icon of the Seas", Brand::Royal),
+        ("ID", "Independence of the Seas", Brand::Royal),
         ("JW", "Jewel of the Seas", Brand::Royal),
         ("LB", "Liberty of the Seas", Brand::Royal),
+        ("LE", "Legend of the Seas", Brand::Royal),
         ("MA", "Mariner of the Seas", Brand::Royal),
         ("NV", "Navigator of the Seas", Brand::Royal),
         ("OA", "Oasis of the Seas", Brand::Royal),
-        ("OD", "Odyssey of the Seas", Brand::Royal),
         ("OV", "Ovation of the Seas", Brand::Royal),
+        ("OY", "Odyssey of the Seas", Brand::Royal),
         ("QN", "Quantum of the Seas", Brand::Royal),
         ("RD", "Radiance of the Seas", Brand::Royal),
         ("RH", "Rhapsody of the Seas", Brand::Royal),
-        ("SP", "Spectrum of the Seas", Brand::Royal),
-        ("SR", "Star of the Seas", Brand::Royal),
+        ("SC", "Spectrum of the Seas", Brand::Royal),
+        ("SR", "Serenade of the Seas", Brand::Royal),
+        ("ST", "Star of the Seas", Brand::Royal),
         ("SY", "Symphony of the Seas", Brand::Royal),
         ("UT", "Utopia of the Seas", Brand::Royal),
-        ("VS", "Vision of the Seas", Brand::Royal),
+        ("VI", "Vision of the Seas", Brand::Royal),
         ("VY", "Voyager of the Seas", Brand::Royal),
         ("WN", "Wonder of the Seas", Brand::Royal),
         // Princess
@@ -404,11 +353,11 @@ pub fn cabin_deck_range(brand: Brand, ship_code: &str) -> Option<(u16, u16)> {
         // Oasis class
         "WN" | "SY" | "HM" | "OA" | "AL" | "UT" => Some((3, 18)),
         // Icon class
-        "IC" | "SR" => Some((5, 20)),
+        "IC" | "ST" | "LE" => Some((5, 20)),
         // Quantum / Quantum-Ultra class
-        "QN" | "AN" | "OV" | "SP" | "OD" => Some((3, 14)),
+        "QN" | "AN" | "OV" | "SC" | "OY" => Some((3, 14)),
         // Celebrity Edge class
-        "ED" | "AX" | "BE" | "AS" | "XC" => Some((3, 16)),
+        "EG" | "AX" | "BY" | "AT" | "XC" => Some((3, 16)),
         _ => None,
     }
 }
@@ -706,11 +655,56 @@ mod tests {
 
     #[test]
     fn ship_codes_are_brand_qualified() {
-        assert_eq!(ship_name(Brand::Royal, "EP"), Some("Explorer of the Seas"));
-        assert_eq!(ship_name(Brand::Princess, "EP"), Some("Emerald Princess"));
-        assert_eq!(ship_name(Brand::Celebrity, "SU"), Some("Celebrity Summit"));
-        assert_eq!(ship_name(Brand::Princess, "SU"), Some("Sun Princess"));
+        // RCG and Princess reuse codes for different ships.
+        assert_eq!(ship_name(Brand::Royal, "ST"), Some("Star of the Seas"));
+        assert_eq!(ship_name(Brand::Princess, "ST"), Some("Star Princess"));
+        assert_eq!(ship_name(Brand::Royal, "EX"), Some("Explorer of the Seas"));
+        assert_eq!(ship_name(Brand::Princess, "EX"), Some("Enchanted Princess"));
         assert_eq!(ship_name(Brand::Princess, "OA"), None);
+    }
+
+    #[test]
+    fn rcg_ship_codes_match_the_voyages_api() {
+        // Codes confirmed against /web/v3/ships/{code}/voyages + /decks (2026-10-26).
+        assert_eq!(ship_name(Brand::Royal, "SR"), Some("Serenade of the Seas"));
+        assert_eq!(ship_name(Brand::Royal, "SC"), Some("Spectrum of the Seas"));
+        assert_eq!(ship_name(Brand::Royal, "OY"), Some("Odyssey of the Seas"));
+        assert_eq!(ship_name(Brand::Royal, "VI"), Some("Vision of the Seas"));
+        assert_eq!(ship_name(Brand::Royal, "ID"), Some("Independence of the Seas"));
+        assert_eq!(ship_name(Brand::Royal, "LE"), Some("Legend of the Seas"));
+        assert_eq!(ship_name(Brand::Celebrity, "SM"), Some("Celebrity Summit"));
+        assert_eq!(ship_name(Brand::Celebrity, "EG"), Some("Celebrity Edge"));
+        assert_eq!(ship_name(Brand::Celebrity, "BY"), Some("Celebrity Beyond"));
+        assert_eq!(ship_name(Brand::Celebrity, "AT"), Some("Celebrity Ascent"));
+        assert_eq!(ship_name(Brand::Celebrity, "ML"), Some("Celebrity Millennium"));
+        // Codes that return no voyages are gone.
+        for (brand, code) in [
+            (Brand::Royal, "EP"),
+            (Brand::Royal, "OD"),
+            (Brand::Royal, "SP"),
+            (Brand::Royal, "VS"),
+            (Brand::Celebrity, "AS"),
+            (Brand::Celebrity, "BE"),
+            (Brand::Celebrity, "ED"),
+            (Brand::Celebrity, "MI"),
+            (Brand::Celebrity, "SU"),
+        ] {
+            assert_eq!(ship_name(brand, code), None, "{brand:?} {code}");
+        }
+        assert_eq!(cabin_deck_range(Brand::Royal, "ST"), Some((5, 20)));
+        assert_eq!(cabin_deck_range(Brand::Royal, "SC"), Some((3, 14)));
+        assert_eq!(cabin_deck_range(Brand::Celebrity, "EG"), Some((3, 16)));
+        let count = |b: Brand| all_ships().iter().filter(|s| s.2 == b).count();
+        assert_eq!(count(Brand::Royal), 30);
+        assert_eq!(count(Brand::Celebrity), 15);
+        let mut seen = std::collections::HashSet::new();
+        for (code, _, brand) in all_ships() {
+            assert!(seen.insert((*brand, *code)), "duplicate {brand:?} {code}");
+        }
+    }
+
+    #[test]
+    fn princess_ship_list_is_complete() {
         assert_eq!(
             all_ships()
                 .iter()
