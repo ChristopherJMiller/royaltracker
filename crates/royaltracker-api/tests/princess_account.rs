@@ -1,6 +1,8 @@
 use base64::Engine;
 use chrono::NaiveDate;
-use royaltracker_api::princess::{basic_auth_value, parse_departure, parse_keep_alive};
+use royaltracker_api::princess::{
+    basic_auth_value, parse_booking_summary, parse_departure, parse_keep_alive, summary_app_id, PrincessCabin,
+};
 
 fn fixture(name: &str) -> serde_json::Value {
     let path = format!("{}/tests/fixtures/princess/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -35,6 +37,7 @@ fn keepalive_parses_context() {
     assert_eq!(c.nights, Some(7));
     assert_eq!(c.sail_date, NaiveDate::from_ymd_opt(2026, 10, 24).unwrap());
     assert_eq!(c.currency, "USD");
+    assert_eq!(c.cabin, None, "the cabin comes from booking/summary, not keepalive");
 }
 
 #[test]
@@ -51,4 +54,39 @@ fn keepalive_missing_field_or_bad_date_is_none() {
     let mut v = fixture("keepalive.json");
     v["data"]["bookingInfo"]["departureDate"] = serde_json::json!("2026-10-24");
     assert!(parse_keep_alive(&v).is_none());
+}
+
+#[test]
+fn booking_summary_parses_cabin() {
+    assert_eq!(
+        parse_booking_summary(&fixture("booking_summary.json")),
+        Some(PrincessCabin {
+            number: "D123".into(),
+            deck_name: Some("Dolphin".into()),
+            category: Some("Deluxe Balcony - 2nd Sofabed".into()),
+        })
+    );
+}
+
+#[test]
+fn booking_summary_without_a_cabin_is_none() {
+    let mut v = fixture("booking_summary.json");
+    v["booking"]["cabinNumber"] = serde_json::json!("");
+    assert_eq!(parse_booking_summary(&v), None);
+    assert_eq!(parse_booking_summary(&serde_json::json!({"segmentId": "0"})), None);
+
+    let mut v = fixture("booking_summary.json");
+    v["booking"].as_object_mut().unwrap().remove("deck");
+    v["booking"]["categoryName"] = serde_json::json!(" ");
+    let c = parse_booking_summary(&v).unwrap();
+    assert_eq!((c.deck_name, c.category), (None, None));
+}
+
+#[test]
+fn summary_app_id_names_the_booking() {
+    let v: serde_json::Value = serde_json::from_str(&summary_app_id("00000000", "AB12CD")).unwrap();
+    assert_eq!(v["bookNum"], "AB12CD");
+    assert_eq!(v["agencyId"], "00000000");
+    assert_eq!(v["cruiseLineCode"], "PCL");
+    assert_eq!(v["systemId"], "PB");
 }

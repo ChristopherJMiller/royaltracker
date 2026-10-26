@@ -1,5 +1,5 @@
-//! Postgres migrations 0012-0013. Skips unless PG_TEST_URL points at an empty
-//! scratch database.
+//! Postgres migrations 0012-0014 and the booking upsert on the migrated schema.
+//! Skips unless PG_TEST_URL points at an empty scratch database.
 #![cfg(feature = "postgres")]
 
 use sqlx::postgres::PgPoolOptions;
@@ -86,4 +86,47 @@ async fn legacy_user_becomes_rcg_account_and_combo_voyages_coexist() {
     .execute(&pool)
     .await
     .is_err());
+
+    booking_upsert_keeps_cabin_details_on_a_blank_refresh(&url).await;
+}
+
+/// Called at the end of the migration test (one test per scratch database):
+/// exercises the hand-numbered upsert placeholders and the keep-if-blank rule.
+async fn booking_upsert_keeps_cabin_details_on_a_blank_refresh(url: &str) {
+    use royaltracker_storage::PriceRepo;
+    use royaltracker_types::{Booking, Brand};
+    let repo = royaltracker_storage::connect(url).await.unwrap();
+    repo.migrate().await.unwrap();
+    let mut b = Booking {
+        reservation_id: "PG1234".into(),
+        brand: Brand::Princess,
+        account_id: "princess:1".into(),
+        ship_code: "XP".into(),
+        sail_date: chrono::NaiveDate::from_ymd_opt(2027, 3, 1).unwrap(),
+        passenger_id: Some("1".into()),
+        nights: Some(7),
+        package_code: None,
+        stateroom: Some("D123".into()),
+        assigned_stateroom: None,
+        voyage_code: Some("X637".into()),
+        currency: Some("USD".into()),
+        deck_name: Some("Dolphin".into()),
+        cabin_category: Some("Deluxe Balcony".into()),
+    };
+    repo.upsert_booking(&b).await.unwrap();
+    b.stateroom = None;
+    b.deck_name = None;
+    b.cabin_category = None;
+    repo.upsert_booking(&b).await.unwrap();
+    let got = repo
+        .list_bookings()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|x| x.reservation_id == "PG1234")
+        .unwrap();
+    assert_eq!(
+        (got.stateroom.as_deref(), got.deck_name.as_deref(), got.cabin_category.as_deref()),
+        (Some("D123"), Some("Dolphin"), Some("Deluxe Balcony"))
+    );
 }

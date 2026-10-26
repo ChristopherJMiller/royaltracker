@@ -342,6 +342,11 @@ pub struct BookingDto {
     pub assigned_stateroom: Option<String>,
     /// Deck derived from the effective (assigned or displayed) cabin, when known.
     pub deck: Option<i32>,
+    /// Named deck for lines that name them (Princess: "Dolphin"); `deck` stays
+    /// null there because Princess cabin numbers don't encode a deck number.
+    pub deck_name: Option<String>,
+    /// Cabin category as the line describes it (Princess only, for now).
+    pub cabin_category: Option<String>,
     /// Coarse height-tier label (e.g. "mid-ship height") when the ship's deck
     /// range is known; null otherwise.
     pub height_tier: Option<String>,
@@ -427,6 +432,8 @@ pub async fn list_bookings(
             stateroom: b.stateroom,
             assigned_stateroom: b.assigned_stateroom,
             deck,
+            deck_name: b.deck_name,
+            cabin_category: b.cabin_category,
             height_tier,
             location_notes,
             shared_with,

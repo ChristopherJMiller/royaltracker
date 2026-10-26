@@ -18,6 +18,7 @@ const QUICK_LOGIN_URL: &str = "https://book.princess.com/captaincircle/quickLogi
 const MANAGE_BOOKING_URL: &str = "https://book.princess.com/manage-booking/index.page";
 const MAX_REDIRECTS: usize = 5;
 const KEEP_ALIVE_URL: &str = "https://book.princess.com/manage-booking/json/sfccKeepAlive.page";
+const SUMMARY_URL: &str = "https://gw.api.princess.com/pcl-web/internal/cpmf/v1.0/booking/summary";
 const ERROR_BODY_MAX: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,63 @@ pub struct PrincessBookingContext {
     pub nights: Option<i32>,
     pub sail_date: NaiveDate,
     pub currency: String,
+    /// From `booking/summary`; `None` until a cabin is assigned or when that
+    /// call fails.
+    pub cabin: Option<PrincessCabin>,
+}
+
+/// The booking's cabin as `booking/summary` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrincessCabin {
+    /// As Princess prints it: deck letter + number, e.g. `D123`.
+    pub number: String,
+    /// Title-cased deck name, e.g. `Dolphin`.
+    pub deck_name: Option<String>,
+    /// Title-cased cabin category, e.g. `Deluxe Balcony - 2nd Sofabed`.
+    pub category: Option<String>,
+}
+
+/// The cabin from a `booking/summary` response. `None` when `booking.cabinNumber`
+/// is missing or blank (no cabin assigned yet).
+pub fn parse_booking_summary(v: &serde_json::Value) -> Option<PrincessCabin> {
+    let b = v.get("booking")?;
+    let text = |k: &str| {
+        b.get(k)
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    };
+    Some(PrincessCabin {
+        number: text("cabinNumber")?.to_string(),
+        deck_name: text("deck").map(title_case),
+        category: text("categoryName").map(title_case),
+    })
+}
+
+/// The `AppId` header `booking/summary` wants, naming the booking it reads.
+pub fn summary_app_id(agency_id: &str, booking_id: &str) -> String {
+    serde_json::json!({
+        "cruiseLineCode": "PCL",
+        "sessionId": "Unique Token",
+        "systemId": "PB",
+        "agencyId": agency_id,
+        "bookNum": booking_id,
+    })
+    .to_string()
+}
+
+/// `DELUXE BALCONY - 2ND` -> `Deluxe Balcony - 2nd`.
+fn title_case(s: &str) -> String {
+    s.split(' ')
+        .map(|w| {
+            let mut cs = w.chars();
+            match cs.next() {
+                Some(first) => first.to_uppercase().chain(cs.flat_map(char::to_lowercase)).collect(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 /// `"Basic " + base64(urlencode(login) + ":" + urlencode(password))`.
@@ -88,6 +146,7 @@ pub fn parse_keep_alive(v: &serde_json::Value) -> Option<PrincessBookingContext>
         nights,
         sail_date,
         currency,
+        cabin: None,
     })
 }
 
@@ -222,7 +281,58 @@ impl PrincessAccountClient {
             .send()
             .await?;
         let v = check_success(resp).await?;
-        Ok(parse_keep_alive(&v))
+        let Some(mut ctx) = parse_keep_alive(&v) else {
+            return Ok(None);
+        };
+
+        // Best-effort: the cabin is a nicety, so a failure only leaves it unknown.
+        let data = &v["data"];
+        let app_token = data["tokenObj"]["appToken"].as_str();
+        let agency_id = data["bookingInfo"]["agencyId"].as_str();
+        ctx.cabin = match (app_token, agency_id) {
+            (Some(token), Some(agency)) => {
+                match self.booking_summary(token, agency, &ctx.booking_id).await {
+                    Ok(cabin) => cabin,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "princess booking summary failed; cabin unknown");
+                        None
+                    }
+                }
+            }
+            _ => {
+                tracing::warn!("princess keepalive lacks appToken or agencyId; cabin unknown");
+                None
+            }
+        };
+        Ok(Some(ctx))
+    }
+
+    /// `booking/summary` for the session's current booking, authorized by the
+    /// keepalive's 30-minute `appToken`.
+    async fn booking_summary(
+        &self,
+        app_token: &str,
+        agency_id: &str,
+        booking_id: &str,
+    ) -> Result<Option<PrincessCabin>, ApiError> {
+        let resp = self
+            .http
+            .get(SUMMARY_URL)
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/json")
+            .header("BookingCompany", "PC")
+            .header("ProductCompany", "PC")
+            .header("pcl-client-id", PCL_CLIENT_ID)
+            .header("AppId", summary_app_id(agency_id, booking_id))
+            .header("authtoken", app_token)
+            .header("Origin", ORIGIN)
+            .header("Referer", "https://www.princess.com/")
+            .send()
+            .await?;
+        let body = check_ok(resp).await?;
+        let v: serde_json::Value = serde_json::from_str(&body)?;
+        Ok(parse_booking_summary(&v))
     }
 }
 

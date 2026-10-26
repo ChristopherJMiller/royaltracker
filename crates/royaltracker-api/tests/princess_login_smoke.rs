@@ -26,4 +26,9 @@ async fn princess_login_returns_booking_context() {
         "ok: booking {} ship {} voyage {} nights {:?} sail {} {}",
         ctx.booking_id, ctx.ship_code, ctx.voyage_code, ctx.nights, ctx.sail_date, ctx.currency
     );
+    // Best-effort in the client, so report it rather than fail on it.
+    match &ctx.cabin {
+        Some(c) => eprintln!("ok: cabin {} deck {:?} category {:?}", c.number, c.deck_name, c.category),
+        None => eprintln!("warn: no cabin from booking/summary (unassigned, or the call failed; see logs)"),
+    }
 }
