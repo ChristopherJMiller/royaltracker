@@ -263,7 +263,7 @@ pub async fn refresh_catalog(
         .find(|b| b.reservation_id == body.reservation_id)
         .ok_or((StatusCode::NOT_FOUND, "booking not found".into()))?;
     if booking.has_departed(Utc::now().date_naive()) {
-        return Err((StatusCode::CONFLICT, "this cruise has already sailed".into()));
+        return Err((StatusCode::CONFLICT, SAILED_MSG.into()));
     }
 
     if booking.brand == Brand::Princess {
@@ -369,6 +369,9 @@ pub struct BookingDto {
 pub struct SharedSubscriberDto {
     pub display: Option<String>,
 }
+
+/// Returned (409) when a request would act on a booking whose ship has sailed.
+const SAILED_MSG: &str = "this cruise has already sailed";
 
 /// The caller's bookings that haven't ended yet. Ended cruises are hidden
 /// everywhere in the Mini App.
@@ -594,6 +597,19 @@ pub async fn add_watched(
         .map_err(db_err)?
     {
         return Err((StatusCode::NOT_FOUND, "booking not found".into()));
+    }
+    // The scraper never prices a sailed booking, so a watch added now would
+    // sit at "not checked yet" forever.
+    let today = Utc::now().date_naive();
+    let sailed = s
+        .repo
+        .list_bookings_for_user(user.db_user.id)
+        .await
+        .map_err(db_err)?
+        .iter()
+        .any(|b| b.reservation_id == body.reservation_id && b.has_departed(today));
+    if sailed {
+        return Err((StatusCode::CONFLICT, SAILED_MSG.into()));
     }
     let id = s
         .repo

@@ -230,10 +230,13 @@ impl Booking {
     }
 
     /// The cruise is over: the day after disembarkation (sail date + nights) has
-    /// arrived. Ended bookings are hidden. An unknown length counts as zero nights.
+    /// arrived. Ended bookings are hidden. An unknown length counts as zero nights;
+    /// one too long to add to the date (bad data) never ends rather than panicking.
     pub fn has_ended(&self, today: NaiveDate) -> bool {
         let nights = self.nights.and_then(|n| u64::try_from(n).ok()).unwrap_or(0);
-        self.sail_date + chrono::Days::new(nights) < today
+        self.sail_date
+            .checked_add_days(chrono::Days::new(nights))
+            .is_some_and(|end| end < today)
     }
 }
 
@@ -783,6 +786,8 @@ mod tests {
         assert!(unknown.has_ended(d(2, 8)));
         let negative = booking_sailing((2027, 2, 7), Some(-3));
         assert!(negative.has_ended(d(2, 8)), "nonsense nights count as zero");
+        let absurd = booking_sailing((2027, 2, 7), Some(i32::MAX));
+        assert!(!absurd.has_ended(d(2, 8)), "an overflowing length doesn't panic");
     }
 
     #[test]

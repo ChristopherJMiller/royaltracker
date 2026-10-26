@@ -307,10 +307,13 @@ impl PriceRepo for PostgresRepo {
                 package_code = EXCLUDED.package_code,
                 -- Keep previously-discovered cabin details if this refresh couldn't find
                 -- them (e.g. a transient order-history or summary error) rather than
-                -- blanking them out.
+                -- blanking them out. Deck and category describe the cabin, so they
+                -- follow it: a refresh that names a cabin brings its own details.
                 stateroom = COALESCE(EXCLUDED.stateroom, bookings.stateroom),
-                deck_name = COALESCE(EXCLUDED.deck_name, bookings.deck_name),
-                cabin_category = COALESCE(EXCLUDED.cabin_category, bookings.cabin_category),
+                deck_name = CASE WHEN EXCLUDED.stateroom IS NULL THEN bookings.deck_name
+                                 ELSE EXCLUDED.deck_name END,
+                cabin_category = CASE WHEN EXCLUDED.stateroom IS NULL THEN bookings.cabin_category
+                                      ELSE EXCLUDED.cabin_category END,
                 assigned_stateroom = COALESCE(EXCLUDED.assigned_stateroom, bookings.assigned_stateroom),
                 voyage_code = EXCLUDED.voyage_code,
                 currency = EXCLUDED.currency,
@@ -778,7 +781,9 @@ impl PriceRepo for PostgresRepo {
     }
 
     async fn list_sailings_to_scrape(&self) -> Result<Vec<ScrapeTarget>, StorageError> {
-        let cutoff = Utc::now().date_naive() - chrono::Days::new(1);
+        // A sailing that has left can't sell add-ons any more (same rule as
+        // `Booking::has_departed`), so it stops being swept on sail day.
+        let today = Utc::now().date_naive();
         let rows = sqlx::query(
             r#"SELECT t.id AS tracked_id, s.brand::text AS brand, s.ship_code, s.sail_date,
                       t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures,
@@ -786,10 +791,10 @@ impl PriceRepo for PostgresRepo {
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                WHERE t.active = TRUE AND s.active = TRUE AND t.account_scope = ''
-                 AND s.sail_date >= $1
+                 AND s.sail_date > $1
                ORDER BY s.brand, s.ship_code, s.sail_date, s.voyage_code"#,
         )
-        .bind(cutoff)
+        .bind(today)
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_scrape_target_pg).collect()

@@ -319,10 +319,13 @@ impl PriceRepo for SqliteRepo {
                 package_code = excluded.package_code,
                 -- Keep previously-discovered cabin details if this refresh couldn't find
                 -- them (e.g. a transient order-history or summary error) rather than
-                -- blanking them out.
+                -- blanking them out. Deck and category describe the cabin, so they
+                -- follow it: a refresh that names a cabin brings its own details.
                 stateroom = COALESCE(excluded.stateroom, bookings.stateroom),
-                deck_name = COALESCE(excluded.deck_name, bookings.deck_name),
-                cabin_category = COALESCE(excluded.cabin_category, bookings.cabin_category),
+                deck_name = CASE WHEN excluded.stateroom IS NULL THEN bookings.deck_name
+                                 ELSE excluded.deck_name END,
+                cabin_category = CASE WHEN excluded.stateroom IS NULL THEN bookings.cabin_category
+                                      ELSE excluded.cabin_category END,
                 assigned_stateroom = COALESCE(excluded.assigned_stateroom, bookings.assigned_stateroom),
                 voyage_code = excluded.voyage_code,
                 currency = excluded.currency,
@@ -803,9 +806,9 @@ impl PriceRepo for SqliteRepo {
     }
 
     async fn list_sailings_to_scrape(&self) -> Result<Vec<ScrapeTarget>, StorageError> {
-        let cutoff = (Utc::now().date_naive() - chrono::Days::new(1))
-            .format("%Y-%m-%d")
-            .to_string();
+        // A sailing that has left can't sell add-ons any more (same rule as
+        // `Booking::has_departed`), so it stops being swept on sail day.
+        let today = Utc::now().date_naive().format("%Y-%m-%d").to_string();
         let rows = sqlx::query(
             r#"SELECT t.id AS tracked_id, s.brand, s.ship_code, s.sail_date,
                       t.product_code, t.category_prefix, t.account_scope, t.consecutive_failures,
@@ -813,10 +816,10 @@ impl PriceRepo for SqliteRepo {
                FROM tracked_products t
                JOIN sailings s ON s.id = t.sailing_id
                WHERE t.active = 1 AND s.active = 1 AND t.account_scope = ''
-                 AND s.sail_date >= ?1
+                 AND s.sail_date > ?1
                ORDER BY s.brand, s.ship_code, s.sail_date, s.voyage_code"#,
         )
-        .bind(cutoff)
+        .bind(today)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(row_to_scrape_target_sqlite).collect()

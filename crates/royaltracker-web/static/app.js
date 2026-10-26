@@ -310,7 +310,8 @@ function BookingsList({ bookings, onOpen, onRefresh }) {
       <div class="space-y-2">
         ${bookings.length === 0
           ? html`<div class="bg-tg-secondary rounded-lg p-4 text-sm text-tg-hint">
-              No bookings yet — tap <em>↻ Refresh</em> to pull them from your account.
+              No upcoming bookings — tap <em>↻ Refresh</em> to pull them from your account.
+              Cruises that have ended are hidden.
             </div>`
           : bookings.map((b) => html`
               <button key=${b.reservation_id} onClick=${() => onOpen(b)}
@@ -384,7 +385,8 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
     <div class="space-y-2">
       <h3 class="text-sm uppercase tracking-wide text-tg-hint">Tracking</h3>
       ${mine.map((w) => {
-        const stale = staleness(w.latest_fetched_at);
+        // Price checks stop once the ship sails, so age isn't a warning then.
+        const stale = booking.sailing_now ? null : staleness(w.latest_fetched_at);
         return html`
         <div key=${w.id} class="bg-tg-secondary rounded-lg p-3 flex items-stretch gap-2">
           <button onClick=${() => onOpen(w)} class="flex-1 text-left hover:opacity-80 transition">

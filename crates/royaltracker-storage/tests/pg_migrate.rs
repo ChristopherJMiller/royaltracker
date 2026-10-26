@@ -129,4 +129,20 @@ async fn booking_upsert_keeps_cabin_details_on_a_blank_refresh(url: &str) {
         (got.stateroom.as_deref(), got.deck_name.as_deref(), got.cabin_category.as_deref()),
         (Some("D123"), Some("Dolphin"), Some("Deluxe Balcony"))
     );
+
+    b.stateroom = Some("C456".into());
+    b.cabin_category = Some("Inside".into());
+    repo.upsert_booking(&b).await.unwrap();
+    let got = repo
+        .list_bookings()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|x| x.reservation_id == "PG1234")
+        .unwrap();
+    assert_eq!(
+        (got.stateroom.as_deref(), got.deck_name.as_deref(), got.cabin_category.as_deref()),
+        (Some("C456"), None, Some("Inside")),
+        "a new cabin doesn't inherit the old cabin's deck"
+    );
 }
