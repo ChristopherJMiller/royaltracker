@@ -14,6 +14,15 @@ const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const initData = tg?.initData || "";
 
+// Native controls (the <select> option list, number spinners, scrollbars) are
+// drawn from the page's color-scheme, not our tg-* colors, so mirror
+// Telegram's light/dark and follow it when the user switches themes.
+const applyColorScheme = () => {
+  document.documentElement.style.colorScheme = tg?.colorScheme === "dark" ? "dark" : "light";
+};
+applyColorScheme();
+tg?.onEvent?.("themeChanged", applyColorScheme);
+
 const BRAND_LABEL = { royal: "Royal Caribbean", celebrity: "Celebrity", princess: "Princess" };
 
 const shipName = (b) => b.ship_name || b.ship_code;
@@ -157,10 +166,16 @@ function AccountForm({ onLinked, lines }) {
         <form onSubmit=${submit} class="space-y-3" autocomplete="on">
           <label class="block">
             <span class="text-sm">Cruise line</span>
-            <select value=${line} onChange=${(e) => setLine(e.target.value)}
-                    class="mt-1 w-full bg-tg-bg text-tg-text rounded-lg px-3 py-2 border border-tg-hint/30">
-              ${lines.map(([k, label]) => html`<option key=${k} value=${k}>${label}</option>`)}
-            </select>
+            <span class="relative mt-1 block">
+              <select value=${line} onChange=${(e) => setLine(e.target.value)}
+                      class="w-full appearance-none bg-tg-bg text-tg-text rounded-lg pl-3 pr-9 py-2 border border-tg-hint/30
+                             focus:outline-none focus:ring-2 focus:ring-tg-button">
+                ${lines.map(([k, label]) => html`
+                  <option key=${k} value=${k} class="bg-tg-bg text-tg-text">${label}</option>`)}
+              </select>
+              <span aria-hidden="true"
+                    class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-tg-hint">▾</span>
+            </span>
           </label>
           <label class="block">
             <span class="text-sm">${line === "princess" ? "Login ID or email" : "Login (email)"}</span>
