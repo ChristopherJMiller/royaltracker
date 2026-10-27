@@ -407,12 +407,15 @@ pub async fn list_bookings(
             })
             .collect();
         // Derive location facts from the effective cabin (recovered GTY room, or
-        // the displayed room when it's a real number rather than "GTY").
+        // the displayed room when it's a real number rather than "GTY"). Princess
+        // cabins carry no deck number, so its deck comes from the deck name.
         let effective_cabin = b
             .assigned_stateroom
             .as_deref()
             .or_else(|| b.stateroom.as_deref().filter(|r| *r != "GTY"));
-        let loc = effective_cabin.and_then(|c| royaltracker_types::cabin_location(b.brand, &b.ship_code, c));
+        let loc = effective_cabin.and_then(|c| {
+            royaltracker_types::cabin_location(b.brand, &b.ship_code, c, b.deck_name.as_deref())
+        });
         let (deck, height_tier, location_notes) = match loc {
             Some(l) => (
                 Some(l.deck as i32),
@@ -759,9 +762,6 @@ pub async fn deck_plan(
         .brand
         .parse::<Brand>()
         .map_err(|_| (StatusCode::BAD_REQUEST, "unknown brand".into()))?;
-    if brand == Brand::Princess {
-        return Err((StatusCode::NOT_FOUND, "deck plans not available".into()));
-    }
     // Ownership gate: the caller must have a booking on this ship. Otherwise the
     // endpoint is an open proxy for arbitrary cruisedeckplans scrapes.
     let owns_ship = s
