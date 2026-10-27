@@ -1,6 +1,8 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
+mod princess_decks;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Brand {
@@ -367,10 +369,16 @@ impl HeightTier {
 /// The stateroom deck range `(lowest, highest)` for a ship, by class. Only the
 /// classes we've confirmed are listed; unknown ships return `None` and callers
 /// degrade to deck-only. Ranges are coarse public facts used solely for a
-/// low/mid/high tier — deliberately not precise venue mapping.
+/// low/mid/high tier — deliberately not precise venue mapping. Princess ranges
+/// come from the decks the Princess deck table marks as holding staterooms.
 pub fn cabin_deck_range(brand: Brand, ship_code: &str) -> Option<(u16, u16)> {
     if brand == Brand::Princess {
-        return None;
+        let mut cabin_decks = princess_decks::decks(ship_code)?
+            .iter()
+            .filter(|(_, _, cabins)| *cabins)
+            .map(|(number, _, _)| *number);
+        let lo = cabin_decks.next()?;
+        return Some((lo, cabin_decks.last().unwrap_or(lo)));
     }
     match ship_code {
         // Oasis class
@@ -396,11 +404,33 @@ pub struct CabinLocation {
     pub notes: Vec<String>,
 }
 
-pub fn cabin_location(brand: Brand, ship_code: &str, cabin: &str) -> Option<CabinLocation> {
-    if brand == Brand::Princess {
+/// The deck number for a named deck (`Dolphin` -> 9 on most Princess ships),
+/// matched case-insensitively. Only Princess names its decks; `None` for RCG and
+/// for ships or names we have no table entry for.
+pub fn named_deck_number(brand: Brand, ship_code: &str, deck_name: &str) -> Option<u16> {
+    if brand != Brand::Princess {
         return None;
     }
-    let deck = deck_of_cabin(cabin)?;
+    let name = deck_name.trim();
+    princess_decks::decks(ship_code)?
+        .iter()
+        .find(|(_, n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(number, _, _)| *number)
+}
+
+/// Location facts for `cabin`. RCG cabin numbers encode the deck; Princess
+/// cabins don't, so their deck comes from `deck_name` (as `booking/summary`
+/// reports it) and is `None` without one.
+pub fn cabin_location(
+    brand: Brand,
+    ship_code: &str,
+    cabin: &str,
+    deck_name: Option<&str>,
+) -> Option<CabinLocation> {
+    let deck = match brand {
+        Brand::Princess => named_deck_number(brand, ship_code, deck_name?)?,
+        Brand::Royal | Brand::Celebrity => deck_of_cabin(cabin)?,
+    };
     let range = cabin_deck_range(brand, ship_code);
     let tier = range.map(|(lo, hi)| {
         let span = hi.saturating_sub(lo).max(1);
@@ -629,13 +659,13 @@ mod tests {
     #[test]
     fn cabin_location_tiers() {
         // Wonder (Oasis, decks 3-18): 9434 is mid-ship height.
-        let l = cabin_location(Brand::Royal, "WN", "9434").unwrap();
+        let l = cabin_location(Brand::Royal, "WN", "9434", None).unwrap();
         assert_eq!(l.deck, 9);
         assert_eq!(l.tier, Some(HeightTier::Middle));
         assert!(!l.notes.is_empty());
 
         // Deck 3 is the lowest stateroom deck → Lower + waterline note.
-        let low = cabin_location(Brand::Royal, "WN", "3218").unwrap();
+        let low = cabin_location(Brand::Royal, "WN", "3218", None).unwrap();
         assert_eq!(low.tier, Some(HeightTier::Lower));
         assert!(low.notes.iter().any(|n| n.contains("waterline")));
     }
@@ -643,7 +673,7 @@ mod tests {
     #[test]
     fn cabin_location_unknown_ship_degrades_to_deck_only() {
         // Unknown ship code → deck derived, but no tier/range-based notes.
-        let l = cabin_location(Brand::Royal, "ZZ", "9434").unwrap();
+        let l = cabin_location(Brand::Royal, "ZZ", "9434", None).unwrap();
         assert_eq!(l.deck, 9);
         assert_eq!(l.tier, None);
         assert!(l.notes.is_empty());
@@ -651,7 +681,7 @@ mod tests {
 
     #[test]
     fn cabin_location_none_for_gty() {
-        assert!(cabin_location(Brand::Royal, "WN", "GTY").is_none());
+        assert!(cabin_location(Brand::Royal, "WN", "GTY", None).is_none());
     }
 
     #[test]
@@ -741,9 +771,33 @@ mod tests {
     }
 
     #[test]
-    fn princess_has_no_cabin_location() {
-        assert!(cabin_location(Brand::Princess, "XP", "9434").is_none());
-        assert!(cabin_location(Brand::Royal, "WN", "9434").is_some());
+    fn princess_deck_names_map_to_numbers() {
+        assert_eq!(named_deck_number(Brand::Princess, "XP", "Dolphin"), Some(9));
+        assert_eq!(named_deck_number(Brand::Princess, "XP", "DOLPHIN"), Some(9));
+        // Upper decks differ by class: Lido is 16 on Royal-class, 14 on Grand-class.
+        assert_eq!(named_deck_number(Brand::Princess, "XP", "Lido"), Some(16));
+        assert_eq!(named_deck_number(Brand::Princess, "AP", "Lido"), Some(14));
+        assert_eq!(named_deck_number(Brand::Princess, "XP", "Nowhere"), None);
+        // No table for ships whose deck pages don't name their decks.
+        assert_eq!(named_deck_number(Brand::Princess, "SU", "Dolphin"), None);
+        assert_eq!(named_deck_number(Brand::Royal, "XP", "Dolphin"), None);
+        assert_eq!(cabin_deck_range(Brand::Princess, "XP"), Some((8, 16)));
+        assert_eq!(cabin_deck_range(Brand::Princess, "SU"), None);
+    }
+
+    #[test]
+    fn princess_cabin_location_comes_from_the_deck_name() {
+        // Discovery Princess staterooms span decks 8-16.
+        let low = cabin_location(Brand::Princess, "XP", "D123", Some("Dolphin")).unwrap();
+        assert_eq!(low.deck, 9);
+        assert_eq!(low.tier, Some(HeightTier::Lower));
+        let mid = cabin_location(Brand::Princess, "XP", "A123", Some("Aloha")).unwrap();
+        assert_eq!((mid.deck, mid.tier), (12, Some(HeightTier::Middle)));
+        // A Princess cabin number alone says nothing about the deck.
+        assert!(cabin_location(Brand::Princess, "XP", "D123", None).is_none());
+        assert!(cabin_location(Brand::Princess, "XP", "9434", None).is_none());
+        // RCG ignores the deck name and reads the number.
+        assert_eq!(cabin_location(Brand::Royal, "WN", "9434", Some("Dolphin")).unwrap().deck, 9);
     }
 
     fn booking_sailing(sail: (i32, u32, u32), nights: Option<i32>) -> Booking {

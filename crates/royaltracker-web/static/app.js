@@ -540,9 +540,11 @@ function LocationPanel({ booking }) {
   const [showPlan, setShowPlan] = useState(false);
   const [plan, setPlan] = useState(null);      // { image_url, source_url }
   const [planErr, setPlanErr] = useState(null);
-  if (!booking.deck || booking.brand === "princess") return null;
+  if (!booking.deck) return null;
 
   const tier = booking.height_tier ? ` · ${booking.height_tier}` : "";
+  // Princess decks have names ("Dolphin"); show it beside the number.
+  const deckName = booking.deck_name ? ` (${booking.deck_name})` : "";
   const notes = booking.location_notes || [];
   const cabin = booking.assigned_stateroom
     || (booking.stateroom && booking.stateroom !== "GTY" ? booking.stateroom : null);
@@ -568,7 +570,7 @@ function LocationPanel({ booking }) {
     <div class="bg-tg-secondary rounded-lg p-4 space-y-3">
       <div class="flex items-center justify-between">
         <h3 class="text-sm uppercase tracking-wide text-tg-hint">Location</h3>
-        <span class="text-sm font-medium">🧭 Deck ${booking.deck}${tier}</span>
+        <span class="text-sm font-medium">🧭 Deck ${booking.deck}${deckName}${tier}</span>
       </div>
       ${notes.length > 0 && html`
         <ul class="text-xs text-tg-hint space-y-1 list-disc list-inside">

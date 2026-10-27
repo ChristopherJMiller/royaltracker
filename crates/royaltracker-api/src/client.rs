@@ -646,3 +646,19 @@ impl BookingSummary {
         ids
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::extract_deckpic_src;
+
+    #[test]
+    fn deckpic_src_skips_the_gif_fallback() {
+        // As served on a cruisedeckplans Princess deck page (2026-10-26).
+        let html = r##"<a href="x"><img style="float:left" alt="deck plan" name="deckpic" onerror="this.onerror=null; this.src='../DP/ships/Discovery-Princess/images/deck8-2026.gif'" src="../DP/ships/Discovery-Princess/images/deck8-2026.webp" style="border: 0px" usemap="#deckmap1"></a>"##;
+        assert_eq!(
+            extract_deckpic_src(html).as_deref(),
+            Some("../DP/ships/Discovery-Princess/images/deck8-2026.webp")
+        );
+        assert_eq!(extract_deckpic_src("<img src=\"a.png\">"), None);
+    }
+}
