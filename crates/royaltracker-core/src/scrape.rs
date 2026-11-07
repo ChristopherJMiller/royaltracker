@@ -323,6 +323,7 @@ mod tests {
             active: true,
             alert_mode: AlertMode::AnyDrop,
             alert_threshold: None,
+            alert_on_paid: false,
         }
     }
 

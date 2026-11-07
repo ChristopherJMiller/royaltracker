@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use royaltracker_types::{
-    AlertMode, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
+    AlertMode, BookedItem, Booking, Brand, CruiseAccount, CruiseLine, Diff, PaidUnit, PriceSnapshot, PublicChannelKind,
     Sailing, User, WatchedProduct,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -9,7 +9,7 @@ use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
 use crate::repo::{
-    ActiveAccount, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel, NewUser,
+    ActiveAccount, BookedChanges, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel, NewUser,
     PriceRepo, PublicPriceDto, PublicSubscriber, PublicSubscriptionRow, SailingDiff, SailingKey,
     SailingSnapshot, ScrapeTarget, ShipRef, StorageError, SubscriberInfo,
 };
@@ -457,7 +457,8 @@ impl PriceRepo for SqliteRepo {
             VALUES (?1, ?2, ?3, ?4, 1)
             ON CONFLICT(reservation_id, product_code) DO UPDATE SET
                 label = COALESCE(excluded.label, products_watched.label),
-                active = 1
+                active = 1,
+                dismissed_at = NULL
             RETURNING id
             "#,
         )
@@ -472,7 +473,7 @@ impl PriceRepo for SqliteRepo {
 
     async fn list_active_watched(&self) -> Result<Vec<WatchedProduct>, StorageError> {
         let rows = sqlx::query(
-            "SELECT id, reservation_id, category_prefix, product_code, label, active, alert_mode, alert_threshold FROM products_watched WHERE active = 1",
+            "SELECT id, reservation_id, category_prefix, product_code, label, active, alert_mode, alert_threshold, alert_on_paid FROM products_watched WHERE active = 1",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -487,7 +488,7 @@ impl PriceRepo for SqliteRepo {
         threshold: Option<f64>,
     ) -> Result<(), StorageError> {
         sqlx::query(
-            "UPDATE products_watched SET alert_mode = ?1, alert_threshold = ?2 WHERE id = ?3",
+            "UPDATE products_watched SET alert_mode = ?1, alert_threshold = ?2, alert_on_paid = 0 WHERE id = ?3",
         )
         .bind(mode.as_str())
         .bind(threshold)
@@ -498,10 +499,173 @@ impl PriceRepo for SqliteRepo {
     }
 
     async fn deactivate_watched(&self, watched_id: i64) -> Result<(), StorageError> {
-        sqlx::query("UPDATE products_watched SET active = 0 WHERE id = ?1")
+        sqlx::query("UPDATE products_watched SET active = 0, dismissed_at = datetime('now') WHERE id = ?1")
             .bind(watched_id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn set_watch_alert_on_paid(&self, watched_id: i64) -> Result<(), StorageError> {
+        sqlx::query("UPDATE products_watched SET alert_on_paid = 1 WHERE id = ?1")
+            .bind(watched_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn replace_booked_items(
+        &self,
+        reservation_id: &str,
+        items: &[BookedItem],
+    ) -> Result<BookedChanges, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        let mut previous: std::collections::HashSet<String> =
+            sqlx::query("SELECT product_code FROM booked_items WHERE reservation_id = ?1")
+                .bind(reservation_id)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .map(|r| r.try_get("product_code"))
+                .collect::<Result<_, _>>()?;
+
+        let mut changes = BookedChanges::default();
+        for it in items {
+            if !previous.remove(&it.product_code) {
+                changes.added.push(it.clone());
+            }
+            // SET expressions see the old row, so the paid_total comparison
+            // is against what was stored before this write.
+            sqlx::query(
+                r#"
+                INSERT INTO booked_items (reservation_id, product_code, category_prefix, title, unit,
+                                          adults, children, paid_total, paid_each, currency,
+                                          last_alert_total, orders_read_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11)
+                ON CONFLICT(reservation_id, product_code) DO UPDATE SET
+                    category_prefix  = excluded.category_prefix,
+                    title            = excluded.title,
+                    unit             = excluded.unit,
+                    adults           = excluded.adults,
+                    children         = excluded.children,
+                    last_alert_total = CASE WHEN ABS(booked_items.paid_total - excluded.paid_total) > 0.005
+                                            THEN NULL ELSE booked_items.last_alert_total END,
+                    paid_total       = excluded.paid_total,
+                    paid_each        = excluded.paid_each,
+                    currency         = excluded.currency,
+                    orders_read_at   = excluded.orders_read_at
+                "#,
+            )
+            .bind(reservation_id)
+            .bind(&it.product_code)
+            .bind(&it.category_prefix)
+            .bind(&it.title)
+            .bind(it.unit.as_str())
+            .bind(i64::from(it.adults))
+            .bind(i64::from(it.children))
+            .bind(it.paid_total)
+            .bind(it.paid_each)
+            .bind(&it.currency)
+            .bind(it.orders_read_at.to_rfc3339())
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let mut removed: Vec<String> = previous.into_iter().collect();
+        removed.sort();
+        for code in &removed {
+            sqlx::query("DELETE FROM booked_items WHERE reservation_id = ?1 AND product_code = ?2")
+                .bind(reservation_id)
+                .bind(code)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        changes.removed = removed;
+        Ok(changes)
+    }
+
+    async fn list_booked_items(&self, reservation_id: &str) -> Result<Vec<BookedItem>, StorageError> {
+        let rows = sqlx::query(
+            r#"SELECT reservation_id, product_code, category_prefix, title, unit, adults, children,
+                      paid_total, paid_each, currency, last_alert_total, orders_read_at
+               FROM booked_items WHERE reservation_id = ?1 ORDER BY product_code"#,
+        )
+        .bind(reservation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(row_to_booked_sqlite).collect()
+    }
+
+    async fn set_booked_last_alert(
+        &self,
+        reservation_id: &str,
+        product_code: &str,
+        total: f64,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE booked_items SET last_alert_total = ?3 WHERE reservation_id = ?1 AND product_code = ?2",
+        )
+        .bind(reservation_id)
+        .bind(product_code)
+        .bind(total)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn ensure_booked_watch(
+        &self,
+        reservation_id: &str,
+        category_prefix: &str,
+        product_code: &str,
+        label: &str,
+    ) -> Result<Option<i64>, StorageError> {
+        let existing = sqlx::query(
+            "SELECT id, dismissed_at FROM products_watched WHERE reservation_id = ?1 AND product_code = ?2",
+        )
+        .bind(reservation_id)
+        .bind(product_code)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = existing else {
+            let row = sqlx::query(
+                r#"INSERT INTO products_watched (reservation_id, category_prefix, product_code, label, active, alert_on_paid)
+                   VALUES (?1, ?2, ?3, ?4, 1, 1) RETURNING id"#,
+            )
+            .bind(reservation_id)
+            .bind(category_prefix)
+            .bind(product_code)
+            .bind(label)
+            .fetch_one(&self.pool)
+            .await?;
+            return Ok(Some(row.try_get("id")?));
+        };
+        if row.try_get::<Option<String>, _>("dismissed_at")?.is_some() {
+            return Ok(None);
+        }
+        let id: i64 = row.try_get("id")?;
+        sqlx::query("UPDATE products_watched SET active = 1, alert_on_paid = 1 WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(Some(id))
+    }
+
+    async fn release_booked_watch(
+        &self,
+        reservation_id: &str,
+        product_code: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"UPDATE products_watched
+               SET alert_on_paid = 0, alert_mode = 'any_drop', alert_threshold = NULL
+               WHERE reservation_id = ?1 AND product_code = ?2 AND alert_on_paid = 1"#,
+        )
+        .bind(reservation_id)
+        .bind(product_code)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1190,6 +1354,28 @@ fn row_to_watched_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<WatchedProduct, S
         alert_mode: AlertMode::from_str(&mode_s)
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         alert_threshold: r.try_get("alert_threshold")?,
+        alert_on_paid: r.try_get::<i64, _>("alert_on_paid")? != 0,
+    })
+}
+
+fn row_to_booked_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<BookedItem, StorageError> {
+    let unit_s: String = r.try_get("unit")?;
+    let read_s: String = r.try_get("orders_read_at")?;
+    Ok(BookedItem {
+        reservation_id: r.try_get("reservation_id")?,
+        category_prefix: r.try_get("category_prefix")?,
+        product_code: r.try_get("product_code")?,
+        title: r.try_get("title")?,
+        unit: PaidUnit::from_str(&unit_s).map_err(|e| sqlx::Error::Decode(e.into()))?,
+        adults: r.try_get::<i64, _>("adults")? as u32,
+        children: r.try_get::<i64, _>("children")? as u32,
+        paid_total: r.try_get("paid_total")?,
+        paid_each: r.try_get("paid_each")?,
+        currency: r.try_get("currency")?,
+        last_alert_total: r.try_get("last_alert_total")?,
+        orders_read_at: DateTime::parse_from_rfc3339(&read_s)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?
+            .with_timezone(&Utc),
     })
 }
 

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use royaltracker_types::{
-    AlertMode, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
+    AlertMode, BookedItem, Booking, Brand, CruiseAccount, CruiseLine, Diff, PriceSnapshot, PublicChannelKind,
     Sailing, User, WatchedProduct,
 };
 
@@ -135,7 +135,46 @@ pub trait PriceRepo: Send + Sync + 'static {
         threshold: Option<f64>,
     ) -> Result<(), StorageError>;
 
+    /// The user removed the watch: inactive, and recorded as dismissed so the
+    /// scraper's booked-item sync never brings it back.
     async fn deactivate_watched(&self, watched_id: i64) -> Result<(), StorageError>;
+
+    /// Switch a watch to "alert below what was paid".
+    async fn set_watch_alert_on_paid(&self, watched_id: i64) -> Result<(), StorageError>;
+
+    // --- booked items (what a cabin bought, from order history) ---
+    /// Make `items` the reservation's booked items, in one transaction. A row
+    /// whose `paid_total` changed (a rebook) gets `last_alert_total` cleared;
+    /// otherwise it is kept. `items[].last_alert_total` is ignored.
+    async fn replace_booked_items(
+        &self,
+        reservation_id: &str,
+        items: &[BookedItem],
+    ) -> Result<BookedChanges, StorageError>;
+    async fn list_booked_items(&self, reservation_id: &str) -> Result<Vec<BookedItem>, StorageError>;
+    async fn set_booked_last_alert(
+        &self,
+        reservation_id: &str,
+        product_code: &str,
+        total: f64,
+    ) -> Result<(), StorageError>;
+    /// Track a newly booked product, alerting below what was paid. Returns
+    /// `None` (and changes nothing) when the user dismissed its watch;
+    /// reactivates one that was merely inactive.
+    async fn ensure_booked_watch(
+        &self,
+        reservation_id: &str,
+        category_prefix: &str,
+        product_code: &str,
+        label: &str,
+    ) -> Result<Option<i64>, StorageError>;
+    /// A product is no longer booked: a watch still alerting below what was
+    /// paid goes back to "any drop". A watch with a hand-set alert is left alone.
+    async fn release_booked_watch(
+        &self,
+        reservation_id: &str,
+        product_code: &str,
+    ) -> Result<(), StorageError>;
 
     async fn list_active_watched(&self) -> Result<Vec<WatchedProduct>, StorageError>;
 
@@ -429,4 +468,13 @@ pub struct PublicPriceDto {
     pub fetched_at: Option<DateTime<Utc>>,
     /// From the sailing; None means USD.
     pub currency: Option<String>,
+}
+
+/// What [`PriceRepo::replace_booked_items`] changed.
+#[derive(Debug, Clone, Default)]
+pub struct BookedChanges {
+    /// Items that weren't booked before.
+    pub added: Vec<BookedItem>,
+    /// Product codes no longer booked.
+    pub removed: Vec<String>,
 }

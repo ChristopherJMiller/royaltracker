@@ -12,7 +12,7 @@ mod sqlite;
 mod postgres;
 
 pub use repo::{
-    ActiveAccount, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel,
+    ActiveAccount, BookedChanges, CatalogEntry, DeckPlan, HistoryPoint, NewCruiseAccount, NewPublicChannel,
     NewUser, PriceRepo, PublicPriceDto, PublicSubscriber, PublicSubscriptionRow, SailingDiff,
     SailingKey, SailingSnapshot, ScrapeTarget, ShipRef, StorageError, SubscriberInfo,
 };
