@@ -6,6 +6,7 @@ use royaltracker_api::{
 use royaltracker_config::{Config, PacingSettings};
 use royaltracker_core::{
     apply_order_reads, discover_account, read_account_orders, run_public_sweep, run_scrape_cycle,
+    unread_bookings,
     sleep_with_jitter, AccountDiscovery, PublicSweepConfig,
 };
 use royaltracker_crypto::Cipher;
@@ -109,16 +110,37 @@ async fn main() -> Result<()> {
     // Order history is relative to the account asking, so each account reads
     // its own view with its own client before the clients are pooled.
     let order_gap = pacing(&cfg.pacing).min_interval;
+    let today = chrono::Utc::now().date_naive();
     let mut order_reads = Vec::new();
+    // False when we can't tell which bookings an RCG account should have read;
+    // then no booking counts as freshly read this run.
+    let mut order_reads_complete = true;
     for active in &accounts {
+        // An RCG account's upcoming bookings that it doesn't read this run
+        // (failed login or listing) become failed reads, so the other
+        // account's partial view never looks complete.
+        let user_bookings = if active.account.line == CruiseLine::Rcg {
+            match repo.list_bookings_for_user(active.user.id).await {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(account = active.account.id, error = %e, "list_bookings_for_user failed");
+                    order_reads_complete = false;
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
         match discover_for_account(&repo, &cipher, &dispatcher, &cfg.rcg_basic_auth_b64, active).await {
             Ok(d) => {
                 order_reads.extend(read_account_orders(&d.rcg_clients, &d.order_targets, order_gap).await);
+                order_reads.extend(unread_bookings(&user_bookings, &d.order_targets, today));
                 for (brand, client) in d.rcg_clients {
                     clients_by_brand.entry(brand).or_insert(client);
                 }
             }
             Err(e) => {
+                order_reads.extend(unread_bookings(&user_bookings, &[], today));
                 warn!(account = active.account.id, error = %e, "account discovery failed");
                 let _ = royaltracker_telegram::send_text(
                     &bot,
@@ -141,7 +163,12 @@ async fn main() -> Result<()> {
     // What each cabin has bought: refresh booked items and their watches
     // before listing watches, so a newly booked item is priced this run.
     let reads_total = order_reads.len();
-    let fresh_orders = apply_order_reads(&repo as &dyn PriceRepo, &bookings_by_res, order_reads).await;
+    let fresh_orders = if order_reads_complete {
+        apply_order_reads(&repo as &dyn PriceRepo, &bookings_by_res, order_reads).await
+    } else {
+        warn!("could not tell which bookings each account should read; booked items left as they were");
+        Default::default()
+    };
     info!(reads = reads_total, fresh_bookings = fresh_orders.len(), "order history refreshed");
 
     // Phase B: per-booking price scrape with fan-out. Each watched product is
