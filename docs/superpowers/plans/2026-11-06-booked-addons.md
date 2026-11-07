@@ -435,4 +435,15 @@ ALTER TABLE products_watched ADD COLUMN dismissed_at TIMESTAMPTZ;
 
 ## Recon findings
 
-*(Filled in by Task 1, step 9.)*
+
+Captured 2026-11-06 from both linked accounts × both upcoming RCG bookings (fixtures under `crates/royaltracker-api/tests/fixtures/rcg/`). Task 2 follows these over the spec's table:
+
+- **Status, not money, says cancelled.** `myOrders[].status`, the detail's `payload.status`, each item's `status` and each guest's `orderStatus` are `BOOKED` or `CANCELLED`. A cancelled guest keeps its old `priceDetails.subtotal` (517.93) with `total` 0 and `quantity` 0, and a cancelled order keeps `orderTotals.total` (1222.2). So: skip summary orders with `status == "CANCELLED"` (saves the detail call) or `total == 0`; skip items with `status == "CANCELLED"`; skip guests with `orderStatus == "CANCELLED"` or `subtotal == 0` (Celebrity "Always Included" items are $0).
+- **Units:** `salesUnit` seen: `PER_DAY`, `PER_NIGHT`, `PER_SEAT` (→ `Each`).
+- **Guests:** `guestType` `ADULT` (also `ageGroup.code`); no children in the data. `guests[].reservationId` is present. Guest records also carry `dob` and `age` (now scrubbed).
+- **Quantity:** use the guest's `priceDetails.quantity` (1 when booked); the item-level `quantity` is -1.
+- **Variants differ from catalog codes.** `id == baseOptions[0].selected.code == defaultVariantId` for every item, but the booked VOOM is `33S2` (2 devices) while the catalog (and the user's watch) has only `33S1`. So variant handling is needed: `33S2` gets its own card and is priced by its own code.
+- **Categories:** `productTypeCategory.id` is `pt_beverage` / `pt_internet` / `pt_shoreX`; catalog/watch ids are `beverage` / `internet` / `shorex`. Normalize: strip `pt_`, lowercase.
+- **Both summary keys** are present even when empty.
+- **Per-account reads are needed:** on the Royal booking one account has 5 `myOrders`; the other has 0 `myOrders` and 4 `ordersOthersHaveBookedForMe`.
+- Sanity: Deluxe Beverage 482.93 ÷ 7 nights = $68.99/day (already rebooked at today's price); VOOM 2-device 265.93 ÷ 7 = $37.99/night.
