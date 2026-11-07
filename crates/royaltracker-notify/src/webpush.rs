@@ -51,7 +51,7 @@ impl WebPushChannel {
         let ua_auth = *Auth::from_slice(&auth);
 
         let payload = serde_json::json!({
-            "title": format!("🔻 {}", alert.label),
+            "title": push_title(alert),
             "body": push_body(alert),
             "url": alert.manage_url,
         })
@@ -83,8 +83,26 @@ impl WebPushChannel {
     }
 }
 
-/// Notification body: new price (+ unit), old price, % change, itinerary.
+fn push_title(alert: &PriceDropAlert<'_>) -> String {
+    match alert.paid {
+        Some(_) => format!("🔻 {} is cheaper than you paid", alert.label),
+        None => format!("🔻 {}", alert.label),
+    }
+}
+
+/// Notification body: new price (+ unit), old price, % change, itinerary. For
+/// a booked item, today's price against what was paid and the savings.
 fn push_body(alert: &PriceDropAlert<'_>) -> String {
+    let itinerary = alert.itinerary.map(|i| format!("\n{i}")).unwrap_or_default();
+    if let Some(p) = &alert.paid {
+        let unit = p.unit.map(|u| format!(" {u}")).unwrap_or_default();
+        let group = p.group.map(|n| format!(" for {n}")).unwrap_or_default();
+        let everyone = if p.group.is_some() { " everyone" } else { "" };
+        return format!(
+            "{}{unit}{group} — you paid {}\nRebook{everyone} to save {}{itinerary}",
+            p.now_label, p.paid_label, p.savings_label
+        );
+    }
     let unit = alert
         .unit_label
         .map(str::trim)
@@ -96,7 +114,7 @@ fn push_body(alert: &PriceDropAlert<'_>) -> String {
         royaltracker_types::format_money(alert.diff.new_price, alert.currency),
         royaltracker_types::format_money(alert.diff.old_price, alert.currency),
         alert.diff.delta_pct,
-        alert.itinerary.map(|i| format!("\n{i}")).unwrap_or_default()
+        itinerary
     )
 }
 
@@ -114,6 +132,7 @@ mod tests {
             manage_url: None,
             currency,
             unit_label: unit,
+            paid: None,
         }
     }
 
@@ -130,5 +149,62 @@ mod tests {
             push_body(&alert(&d, Some("AUD"), Some("per person / day"))),
             "AUD 24.94 per person / day — was AUD 30.00 (-16.9%)\nShip · Jan 2, 2027"
         );
+    }
+}
+
+#[cfg(test)]
+mod paid_tests {
+    use super::*;
+    use crate::PaidComparison;
+    use royaltracker_types::Diff;
+
+    #[test]
+    fn paid_push_title_and_body() {
+        let d = Diff::from_prices(1, 145.98, 137.98);
+        let alert = PriceDropAlert {
+            label: "Deluxe Beverage Package",
+            diff: &d,
+            msrp_label: None,
+            itinerary: Some("Harmony of the Seas · 7 nights · Mar 14, 2027"),
+            manage_url: None,
+            currency: None,
+            unit_label: None,
+            paid: Some(PaidComparison {
+                now_label: "$68.99",
+                paid_label: "$72.99",
+                unit: Some("per day"),
+                group: None,
+                savings_label: "$56.00",
+                breakdown: Some("2 guests × 7 days × $4.00"),
+            }),
+        };
+        assert_eq!(push_title(&alert), "🔻 Deluxe Beverage Package is cheaper than you paid");
+        assert_eq!(
+            push_body(&alert),
+            "$68.99 per day — you paid $72.99\nRebook to save $56.00\nHarmony of the Seas · 7 nights · Mar 14, 2027"
+        );
+    }
+
+    #[test]
+    fn paid_push_body_for_a_group() {
+        let d = Diff::from_prices(1, 145.98, 137.98);
+        let alert = PriceDropAlert {
+            label: "Deluxe Beverage Package",
+            diff: &d,
+            msrp_label: None,
+            itinerary: None,
+            manage_url: None,
+            currency: None,
+            unit_label: None,
+            paid: Some(PaidComparison {
+                now_label: "$137.98",
+                paid_label: "$145.98",
+                unit: Some("per day"),
+                group: Some(2),
+                savings_label: "$56.00",
+                breakdown: None,
+            }),
+        };
+        assert_eq!(push_body(&alert), "$137.98 per day for 2 — you paid $145.98\nRebook everyone to save $56.00");
     }
 }

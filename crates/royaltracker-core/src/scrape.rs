@@ -2,13 +2,114 @@ use chrono::{NaiveDate, Utc};
 use crate::princess::PrincessPriceCache;
 use royaltracker_api::princess::PrincessGuestClient;
 use royaltracker_api::{CruiseClient, ProductPrice};
-use royaltracker_notify::{NotifyTarget, Notifier, PriceDropAlert};
+use royaltracker_notify::{NotifyTarget, Notifier, PaidComparison, PriceDropAlert};
 use royaltracker_storage::{CatalogEntry, PriceRepo};
-use royaltracker_types::{Booking, Brand, Diff, PriceSnapshot, WatchedProduct};
+use royaltracker_types::{
+    format_money, BookedItem, Booking, Brand, Diff, PaidUnit, PriceSnapshot, WatchedProduct,
+};
 use std::collections::{HashMap, HashSet};
 use tracing::{info, warn};
 
+use crate::booked::{
+    paid_status, round2, savings_breakdown, should_alert_below_paid, today_total, PaidStatus,
+};
 use crate::diff::detect_diff;
+
+/// How a watch's fresh price is judged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PaidDecision {
+    /// Not a booked item alerting on what was paid: the watch's own alert.
+    Regular,
+    /// No alert this run.
+    Skip,
+    /// The cabin's total today, now worth a "cheaper than you paid" alert.
+    Alert { total: f64 },
+}
+
+/// A watch alerting below what was paid only alerts from orders read fresh
+/// this run, so a failed order read can't compare against a stale price.
+fn paid_decision(
+    w: &WatchedProduct,
+    item: Option<&BookedItem>,
+    fresh: bool,
+    current: &PriceSnapshot,
+) -> PaidDecision {
+    let (true, Some(item)) = (w.alert_on_paid, item) else {
+        return PaidDecision::Regular;
+    };
+    if !fresh {
+        return PaidDecision::Skip;
+    }
+    let Some(total) = today_total(item, current.adult_promo_price, current.child_promo_price) else {
+        return PaidDecision::Skip;
+    };
+    if should_alert_below_paid(item, total) {
+        PaidDecision::Alert { total }
+    } else {
+        PaidDecision::Skip
+    }
+}
+
+/// The owned labels behind a [`PaidComparison`]: per person when everyone
+/// paid the same, otherwise the cabin's totals.
+struct PaidStrings {
+    now_label: String,
+    paid_label: String,
+    unit: Option<&'static str>,
+    group: Option<u32>,
+    savings_label: String,
+    breakdown: Option<String>,
+}
+
+impl PaidStrings {
+    fn comparison(&self) -> PaidComparison<'_> {
+        PaidComparison {
+            now_label: &self.now_label,
+            paid_label: &self.paid_label,
+            unit: self.unit,
+            group: self.group,
+            savings_label: &self.savings_label,
+            breakdown: self.breakdown.as_deref(),
+        }
+    }
+}
+
+fn paid_strings(
+    item: &BookedItem,
+    total: f64,
+    nights: Option<i32>,
+    currency: Option<&str>,
+) -> PaidStrings {
+    let guests = item.adults + item.children;
+    let (now_label, paid_label, group) = match item.paid_each {
+        Some(each) => (
+            format_money(round2(total / f64::from(guests)), currency),
+            format_money(each, currency),
+            None,
+        ),
+        None => (
+            format_money(total, currency),
+            format_money(item.paid_total, currency),
+            Some(guests),
+        ),
+    };
+    let savings = match paid_status(item, total, nights) {
+        PaidStatus::Cheaper { savings } => savings,
+        PaidStatus::Same | PaidStatus::PaidLess => 0.0,
+    };
+    PaidStrings {
+        now_label,
+        paid_label,
+        unit: match item.unit {
+            PaidUnit::Day => Some("per day"),
+            PaidUnit::Night => Some("per night"),
+            PaidUnit::Each => None,
+        },
+        group,
+        savings_label: format_money(savings, currency),
+        breakdown: savings_breakdown(item, total, nights),
+    }
+}
 
 pub struct ScrapeOutcome {
     pub snapshots_written: usize,
@@ -30,6 +131,10 @@ pub struct ScrapeOutcome {
 /// login. A watched product whose booking's brand has no client in the pool
 /// is skipped with a warning. Watches on bookings that have sailed (as of
 /// `today`, UTC) are skipped without a fetch.
+///
+/// A watch alerting below what was paid compares with its booked item, and
+/// only for reservations in `fresh_orders` (orders read this run).
+#[allow(clippy::too_many_arguments)]
 pub async fn run_scrape_cycle(
     clients_by_brand: &HashMap<Brand, CruiseClient>,
     princess: Option<&PrincessGuestClient>,
@@ -38,6 +143,7 @@ pub async fn run_scrape_cycle(
     watched: &[WatchedProduct],
     bookings_by_res: &HashMap<String, Booking>,
     today: NaiveDate,
+    fresh_orders: &HashSet<String>,
 ) -> ScrapeOutcome {
     let mut snapshots_written = 0;
     let mut diffs_detected = 0;
@@ -52,6 +158,8 @@ pub async fn run_scrape_cycle(
     // (reservation_id, product_code). One DB query per unique reservation
     // referenced by an active watch.
     let mut catalog_index: HashMap<(String, String), CatalogEntry> = HashMap::new();
+    // What each cabin paid, for watches alerting below it. Same keying.
+    let mut booked_index: HashMap<(String, String), BookedItem> = HashMap::new();
     let mut loaded_reservations: HashSet<String> = Default::default();
     for w in &watched {
         if loaded_reservations.insert(w.reservation_id.clone()) {
@@ -60,6 +168,14 @@ pub async fn run_scrape_cycle(
                     catalog_index
                         .insert((e.reservation_id.clone(), e.product_code.clone()), e);
                 }
+            }
+            match repo.list_booked_items(&w.reservation_id).await {
+                Ok(items) => {
+                    for it in items {
+                        booked_index.insert((it.reservation_id.clone(), it.product_code.clone()), it);
+                    }
+                }
+                Err(e) => warn!(error = %e, "list_booked_items failed"),
             }
         }
     }
@@ -153,8 +269,19 @@ pub async fn run_scrape_cycle(
         }
         snapshots_written += 1;
 
-        let Some(diff) = detect_diff(w, previous.as_ref(), &current) else {
-            continue;
+        let key = (w.reservation_id.clone(), w.product_code.clone());
+        let item = booked_index.get(&key);
+        let fresh = fresh_orders.contains(&w.reservation_id);
+        let (diff, paid) = match (paid_decision(w, item, fresh, &current), item) {
+            (PaidDecision::Skip, _) => continue,
+            (PaidDecision::Alert { total }, Some(item)) => (
+                Diff::from_prices(w.id, item.paid_total, total),
+                Some((item, total, paid_strings(item, total, booking.nights, booking.currency.as_deref()))),
+            ),
+            _ => match detect_diff(w, previous.as_ref(), &current) {
+                Some(d) => (d, None),
+                None => continue,
+            },
         };
 
         let diff_id = match repo.insert_diff(&diff).await {
@@ -188,6 +315,9 @@ pub async fn run_scrape_cycle(
             );
             // Still mark notified so we don't re-process this diff forever.
             diffs_to_mark.push(diff_id);
+            if let Some((item, total, _)) = &paid {
+                record_paid_alert(repo, item, *total).await;
+            }
             continue;
         }
 
@@ -207,6 +337,7 @@ pub async fn run_scrape_cycle(
             manage_url: None,
             currency: booking.currency.as_deref(),
             unit_label,
+            paid: paid.as_ref().map(|(_, _, s)| s.comparison()),
         };
 
         let mut any_sent = false;
@@ -222,6 +353,9 @@ pub async fn run_scrape_cycle(
         }
         if any_sent {
             diffs_to_mark.push(diff_id);
+            if let Some((item, total, _)) = &paid {
+                record_paid_alert(repo, item, *total).await;
+            }
         }
     }
 
@@ -292,6 +426,17 @@ fn itinerary_label(b: &Booking) -> String {
     s
 }
 
+
+/// Remember today's total so the next "cheaper than you paid" alert needs a
+/// further drop.
+async fn record_paid_alert(repo: &dyn PriceRepo, item: &BookedItem, total: f64) {
+    if let Err(e) = repo
+        .set_booked_last_alert(&item.reservation_id, &item.product_code, total)
+        .await
+    {
+        warn!(error = %e, "set_booked_last_alert failed");
+    }
+}
 fn into_snapshot(watched_id: i64, p: &ProductPrice) -> PriceSnapshot {
     PriceSnapshot {
         watched_id,
@@ -385,5 +530,86 @@ mod tests {
         b.ship_code = "ST".into();
         b.stateroom = Some("9434".into());
         assert!(itinerary_label(&b).ends_with("· cabin 9434 · deck 9"), "a numbered deck wins");
+    }
+}
+
+#[cfg(test)]
+mod paid_tests {
+    use super::*;
+    use royaltracker_types::{AlertMode, BookedItem, PaidUnit};
+
+    fn watch(on_paid: bool) -> WatchedProduct {
+        WatchedProduct {
+            id: 1,
+            reservation_id: "R".into(),
+            category_prefix: "beverage".into(),
+            product_code: "P1".into(),
+            label: None,
+            active: true,
+            alert_mode: AlertMode::AnyDrop,
+            alert_threshold: None,
+            alert_on_paid: on_paid,
+        }
+    }
+
+    fn snap(adult: Option<f64>) -> PriceSnapshot {
+        PriceSnapshot {
+            watched_id: 1,
+            fetched_at: Utc::now(),
+            adult_promo_price: adult,
+            child_promo_price: None,
+            raw_response: serde_json::Value::Null,
+        }
+    }
+
+    fn booked(last_alert_total: Option<f64>) -> BookedItem {
+        BookedItem {
+            reservation_id: "R".into(),
+            category_prefix: "beverage".into(),
+            product_code: "P1".into(),
+            title: "Deluxe Beverage Package".into(),
+            unit: PaidUnit::Day,
+            adults: 2,
+            children: 0,
+            paid_total: 145.98,
+            paid_each: Some(72.99),
+            currency: None,
+            last_alert_total,
+            orders_read_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn paid_decision_rules() {
+        let item = booked(None);
+        let now = snap(Some(68.99));
+        assert_eq!(paid_decision(&watch(false), Some(&item), true, &now), PaidDecision::Regular);
+        assert_eq!(paid_decision(&watch(true), None, true, &now), PaidDecision::Regular);
+        assert_eq!(paid_decision(&watch(true), Some(&item), false, &now), PaidDecision::Skip);
+        assert_eq!(
+            paid_decision(&watch(true), Some(&item), true, &now),
+            PaidDecision::Alert { total: 137.98 }
+        );
+        assert_eq!(
+            paid_decision(&watch(true), Some(&booked(Some(137.98))), true, &now),
+            PaidDecision::Skip
+        );
+        assert_eq!(paid_decision(&watch(true), Some(&item), true, &snap(None)), PaidDecision::Skip);
+    }
+
+    #[test]
+    fn paid_comparison_labels() {
+        let item = booked(None);
+        let s = paid_strings(&item, 137.98, Some(7), None);
+        assert_eq!(s.now_label, "$68.99");
+        assert_eq!(s.paid_label, "$72.99");
+        assert_eq!(s.unit, Some("per day"));
+        assert_eq!(s.group, None);
+        assert_eq!(s.savings_label, "$56.00");
+        assert_eq!(s.breakdown.as_deref(), Some("2 guests × 7 days × $4.00"));
+
+        let pair = BookedItem { paid_total: 145.98, paid_each: None, ..booked(None) };
+        let s = paid_strings(&pair, 137.98, Some(7), None);
+        assert_eq!((s.now_label.as_str(), s.paid_label.as_str(), s.group), ("$137.98", "$145.98", Some(2)));
     }
 }
