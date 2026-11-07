@@ -3,9 +3,12 @@
 
 use crate::diff::{MIN_DROP_ABS, MIN_DROP_PCT};
 use chrono::{DateTime, Utc};
-use royaltracker_api::OrderLine;
-use royaltracker_types::{format_money, BookedItem, Brand, GuestType, PaidUnit};
-use std::collections::BTreeMap;
+use royaltracker_api::{CruiseClient, OrderLine};
+use royaltracker_storage::PriceRepo;
+use royaltracker_types::{format_money, BookedItem, Booking, Brand, GuestType, PaidUnit};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::Duration;
+use tracing::{info, warn};
 
 /// Prices within half a cent are the same price.
 const CENT: f64 = 0.005;
@@ -26,6 +29,122 @@ pub struct OrderTarget {
     pub sail_wire: String,
     /// This account's passenger id on the booking.
     pub passenger_id: String,
+}
+
+/// One account's read of one booking's order history.
+#[derive(Debug)]
+pub struct OrderRead {
+    pub reservation_id: String,
+    pub lines: Result<Vec<OrderLine>, String>,
+}
+
+/// Read each target's order history with this account's own client. A target
+/// whose brand has no logged-in client is a failed read.
+pub async fn read_account_orders(
+    clients: &HashMap<Brand, CruiseClient>,
+    targets: &[OrderTarget],
+    gap: Duration,
+) -> Vec<OrderRead> {
+    let mut out = Vec::with_capacity(targets.len());
+    for t in targets {
+        let lines = match clients.get(&t.brand) {
+            None => Err("no client".to_string()),
+            Some(c) => c
+                .fetch_order_lines(t.brand, &t.ship_code, &t.sail_wire, &t.passenger_id, &t.reservation_id, gap)
+                .await
+                .map_err(|e| e.to_string()),
+        };
+        if let Err(e) = &lines {
+            warn!(brand = %t.brand, error = %e, "order history read failed");
+        }
+        out.push(OrderRead { reservation_id: t.reservation_id.clone(), lines });
+    }
+    out
+}
+
+/// Merge every account's reads per reservation. A reservation is kept only
+/// when every read of it succeeded, so a half-read booking never looks like
+/// its other purchases were cancelled. Lines seen by more than one account
+/// (same order, guest and product) appear once.
+pub fn merge_reads(reads: Vec<OrderRead>) -> HashMap<String, Vec<OrderLine>> {
+    let mut failed: HashSet<String> = HashSet::new();
+    let mut merged: HashMap<String, Vec<OrderLine>> = HashMap::new();
+    let mut seen: HashSet<(String, String, String, String)> = HashSet::new();
+    for r in reads {
+        match r.lines {
+            Err(_) => {
+                failed.insert(r.reservation_id);
+            }
+            Ok(lines) => {
+                let entry = merged.entry(r.reservation_id.clone()).or_default();
+                for l in lines {
+                    let key = (
+                        r.reservation_id.clone(),
+                        l.order_code.clone(),
+                        l.guest_id.clone(),
+                        l.product_code.clone(),
+                    );
+                    if seen.insert(key) {
+                        entry.push(l);
+                    }
+                }
+            }
+        }
+    }
+    merged.retain(|res, _| !failed.contains(res));
+    merged
+}
+
+/// Turn this run's order reads into booked items and track them: newly booked
+/// products get a "below what you paid" watch (unless the user dismissed it),
+/// products no longer booked go back to "any drop". Returns the reservations
+/// whose orders were read fresh this run; only those may send below-paid
+/// alerts.
+pub async fn apply_order_reads(
+    repo: &dyn PriceRepo,
+    bookings: &HashMap<String, Booking>,
+    reads: Vec<OrderRead>,
+) -> HashSet<String> {
+    let mut fresh = HashSet::new();
+    for (res, lines) in merge_reads(reads) {
+        let Some(booking) = bookings.get(&res) else {
+            continue;
+        };
+        let items = summarize_orders(&res, booking.nights, &lines, Utc::now());
+        let changes = match repo.replace_booked_items(&res, &items).await {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(error = %e, "replace_booked_items failed");
+                continue;
+            }
+        };
+        let mut ok = true;
+        for it in &changes.added {
+            if let Err(e) = repo
+                .ensure_booked_watch(&res, &it.category_prefix, &it.product_code, &it.title)
+                .await
+            {
+                warn!(error = %e, "ensure_booked_watch failed");
+                ok = false;
+            }
+        }
+        for code in &changes.removed {
+            if let Err(e) = repo.release_booked_watch(&res, code).await {
+                warn!(error = %e, "release_booked_watch failed");
+                ok = false;
+            }
+        }
+        info!(
+            items = items.len(),
+            added = changes.added.len(),
+            removed = changes.removed.len(),
+            "booked items refreshed"
+        );
+        if ok {
+            fresh.insert(res);
+        }
+    }
+    fresh
 }
 
 /// Turn a booking's order lines into one [`BookedItem`] per product: what the
@@ -339,5 +458,58 @@ mod tests {
         assert_eq!(savings_breakdown(&pass, 189.99, Some(7)), None);
         let pair = one(&[adult("g1", PaidUnit::Day, 510.93), adult("g2", PaidUnit::Day, 255.50)]);
         assert_eq!(savings_breakdown(&pair, 100.0, Some(7)), None);
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use royaltracker_api::OrderLine;
+    use royaltracker_types::{GuestType, PaidUnit};
+
+    fn l(order: &str, guest: &str) -> OrderLine {
+        OrderLine {
+            order_code: order.into(),
+            order_date: None,
+            guest_id: guest.into(),
+            guest_reservation_id: None,
+            guest_type: GuestType::Adult,
+            category_prefix: "beverage".into(),
+            product_code: "3222".into(),
+            title: "Deluxe Beverage Package".into(),
+            unit: PaidUnit::Day,
+            subtotal: 482.93,
+            quantity: 1,
+            currency: None,
+        }
+    }
+
+    fn ok(res: &str, lines: Vec<OrderLine>) -> OrderRead {
+        OrderRead { reservation_id: res.into(), lines: Ok(lines) }
+    }
+
+    fn failed(res: &str) -> OrderRead {
+        OrderRead { reservation_id: res.into(), lines: Err("boom".into()) }
+    }
+
+    #[test]
+    fn merge_dedupes_lines_seen_by_both_accounts() {
+        let m = merge_reads(vec![
+            ok("R1", vec![l("O1", "g1"), l("O1", "g2"), l("O2", "g1")]),
+            ok("R1", vec![l("O1", "g1"), l("O3", "g2")]),
+        ]);
+        assert_eq!(m["R1"].len(), 4);
+    }
+
+    #[test]
+    fn one_failed_account_makes_reservation_stale() {
+        let m = merge_reads(vec![ok("R2", vec![l("O1", "g1")]), failed("R2"), ok("R1", vec![])]);
+        assert!(!m.contains_key("R2"));
+        assert!(m.contains_key("R1")); // read fine, nothing booked
+    }
+
+    #[test]
+    fn all_failed_is_stale() {
+        assert!(merge_reads(vec![failed("R3"), failed("R3")]).is_empty());
     }
 }
