@@ -16,7 +16,7 @@ pub use client::{
 };
 pub use error::ApiError;
 pub use graphql::{parse_money_cents, Category, GraphqlProduct};
-pub use orders::{OrderLine, OrderRef};
+pub use orders::{parse_order_detail, parse_order_summary, OrderLine, OrderRef};
 pub use public::{
     is_bot_challenge, PacingConfig, PublicClient, PublicClientConfig, PublicFetch, PublicProduct,
 };

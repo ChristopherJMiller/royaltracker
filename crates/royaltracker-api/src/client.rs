@@ -332,7 +332,7 @@ impl CruiseClient {
         }
 
         let raw: serde_json::Value = resp.json().await?;
-        Ok(ProductPrice::from_raw(raw))
+        Ok(ProductPrice::from_raw_for(raw, product_code))
     }
 
     /// Authenticated GET returning raw JSON. Shared by the order-history calls.
