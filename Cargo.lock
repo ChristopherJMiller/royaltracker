@@ -2765,6 +2765,7 @@ dependencies = [
  "royaltracker-storage",
  "royaltracker-telegram",
  "royaltracker-types",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

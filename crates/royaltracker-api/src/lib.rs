@@ -5,6 +5,7 @@ mod error;
 mod graphql;
 mod public;
 pub mod princess;
+pub mod scrub;
 
 pub use auth::{TokenState, decode_account_id};
 pub use catalog::ProductPrice;
