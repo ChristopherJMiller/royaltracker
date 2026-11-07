@@ -1,3 +1,4 @@
+pub mod booked;
 pub mod bookings;
 pub mod catalog;
 pub mod diff;
@@ -6,6 +7,7 @@ pub mod princess;
 pub mod public_sweep;
 pub mod scrape;
 
+pub use booked::OrderTarget;
 pub use bookings::{discover_account, discover_with_clients, AccountDiscovery};
 pub use catalog::{refresh_catalog_for_booking, refresh_princess_catalog};
 pub use diff::detect_diff;

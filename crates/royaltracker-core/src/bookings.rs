@@ -4,6 +4,7 @@ use royaltracker_storage::{PriceRepo, StorageError};
 use royaltracker_notify::{NotifyTarget, Notifier, TextAlert};
 use royaltracker_types::{Booking, Brand, CruiseAccount, CruiseLine, User};
 use std::collections::HashMap;
+use crate::booked::OrderTarget;
 use crate::princess::{discover_princess, PRINCESS_NO_BOOKING_MSG};
 use tracing::{info, warn};
 
@@ -12,6 +13,9 @@ pub struct AccountDiscovery {
     pub report: DiscoveryReport,
     /// Authenticated RCG clients (empty for other lines).
     pub rcg_clients: HashMap<Brand, CruiseClient>,
+    /// Upcoming RCG bookings as this account sees them, for reading its order
+    /// history (empty for other lines).
+    pub order_targets: Vec<OrderTarget>,
 }
 
 /// Outcome recorded against an account: `None` when at least one login
@@ -51,11 +55,19 @@ pub async fn discover_account(
                 notifier,
             )
             .await
-            .map(|(report, rcg_clients)| AccountDiscovery { report, rcg_clients })
+            .map(|(report, rcg_clients, order_targets)| AccountDiscovery {
+                report,
+                rcg_clients,
+                order_targets,
+            })
         }
         CruiseLine::Princess => discover_princess(repo, user, account, password)
             .await
-            .map(|report| AccountDiscovery { report, rcg_clients: HashMap::new() }),
+            .map(|report| AccountDiscovery {
+                report,
+                rcg_clients: HashMap::new(),
+                order_targets: Vec::new(),
+            }),
     };
     let outcome = match &result {
         Ok(d) => login_outcome(&d.report),
@@ -69,7 +81,8 @@ pub async fn discover_account(
 
 /// Discover all bookings across both RCG brands and persist them, returning
 /// the per-brand authenticated clients so the caller can reuse them for
-/// downstream API calls without logging in again.
+/// downstream API calls without logging in again, plus the upcoming bookings
+/// as order-history targets for this account.
 ///
 /// We deliberately do TWO logins (one per brand's auth host) because Phase 0
 /// only verified that a JWT issued via the *Celebrity* host works for both
@@ -89,9 +102,10 @@ pub async fn discover_with_clients(
     // to each reservation's subscribers. The scraper supplies it; web discovery
     // passes `None`.
     notifier: Option<&dyn Notifier>,
-) -> anyhow::Result<(DiscoveryReport, HashMap<Brand, CruiseClient>)> {
+) -> anyhow::Result<(DiscoveryReport, HashMap<Brand, CruiseClient>, Vec<OrderTarget>)> {
     let mut report = DiscoveryReport::default();
     let mut clients: HashMap<Brand, CruiseClient> = HashMap::new();
+    let mut order_targets: Vec<OrderTarget> = Vec::new();
 
     // Snapshot of what we already had persisted, taken before this pass upserts
     // anything, so we can detect cabin assignments/reassignments.
@@ -232,6 +246,18 @@ pub async fn discover_with_clients(
             }
             report.persisted += 1;
 
+            if let (Some(pax), Some(sail), false) =
+                (booking.passenger_id.as_deref(), sail_wire.as_deref(), sailed)
+            {
+                order_targets.push(OrderTarget {
+                    brand,
+                    reservation_id: reservation_id.clone(),
+                    ship_code: booking.ship_code.clone(),
+                    sail_wire: sail.to_string(),
+                    passenger_id: pax.to_string(),
+                });
+            }
+
             // Push a cabin-assignment alert when we have a notifier and this
             // booking existed before this pass (skips first-time discovery/backfill).
             if let Some(notifier) = notifier {
@@ -284,7 +310,7 @@ pub async fn discover_with_clients(
         "bookings discovery complete"
     );
 
-    Ok((report, clients))
+    Ok((report, clients, order_targets))
 }
 
 /// Decide whether a booking's cabin changed in a way worth alerting on,

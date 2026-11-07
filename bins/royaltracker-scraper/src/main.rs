@@ -11,7 +11,7 @@ use royaltracker_crypto::Cipher;
 use royaltracker_notify::{Dispatcher, Notifier, WebPushChannel};
 use royaltracker_storage::{connect, ActiveAccount, DefaultRepo, PriceRepo};
 use royaltracker_telegram::bot;
-use royaltracker_types::{Booking, Brand};
+use royaltracker_types::{Booking, Brand, CruiseLine};
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -37,6 +37,10 @@ async fn main() -> Result<()> {
         .init();
 
     let cfg = Config::load().context("loading config")?;
+
+    if std::env::var_os("ROYALTRACKER_DUMP_ORDERS").is_some() {
+        return dump_orders(&cfg).await;
+    }
 
     sleep_with_jitter(cfg.jitter_minutes).await;
 
@@ -196,4 +200,82 @@ async fn discover_for_account(
     );
 
     Ok(d.rcg_clients)
+}
+
+/// One-off recon (`ROYALTRACKER_DUMP_ORDERS=1`): print each upcoming RCG
+/// booking's order history as each account sees it, one JSON line per booking,
+/// scrubbed of names and ids. Logs in like a normal run; prices nothing and
+/// sends nothing.
+async fn dump_orders(cfg: &Config) -> Result<()> {
+    let repo = connect(&cfg.database_url).await.context("db connect")?;
+    repo.migrate().await.context("db migrate")?;
+    let cipher = Cipher::from_base64(&cfg.encryption_key_b64).context("encryption_key_b64")?;
+
+    let accounts = repo
+        .list_active_cruise_accounts()
+        .await
+        .context("list cruise accounts")?;
+    for active in accounts.iter().filter(|a| a.account.line == CruiseLine::Rcg) {
+        let password_bytes =
+            cipher.decrypt(&active.account.password_nonce, &active.account.password_ct)?;
+        let password = String::from_utf8(password_bytes)?;
+        let d = match discover_account(
+            &repo as &dyn PriceRepo,
+            &cfg.rcg_basic_auth_b64,
+            &active.user,
+            &active.account,
+            &password,
+            None,
+        )
+        .await
+        {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(account = active.account.id, error = %e, "dump: discovery failed");
+                continue;
+            }
+        };
+        for t in &d.order_targets {
+            let Some(client) = d.rcg_clients.get(&t.brand) else {
+                continue;
+            };
+            let summary = match client
+                .fetch_order_history(t.brand, &t.ship_code, &t.sail_wire, &t.passenger_id, &t.reservation_id)
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(account = active.account.id, error = %e, "dump: order history failed");
+                    continue;
+                }
+            };
+            let codes: Vec<String> = ["myOrders", "ordersOthersHaveBookedForMe"]
+                .iter()
+                .filter_map(|k| summary.pointer(&format!("/payload/{k}"))?.as_array())
+                .flatten()
+                .filter_map(|o| o.get("orderCode")?.as_str().map(str::to_owned))
+                .collect();
+            let mut details = Vec::new();
+            for code in codes {
+                match client
+                    .fetch_order_detail(t.brand, &t.ship_code, &t.sail_wire, &code, &t.passenger_id, &t.reservation_id)
+                    .await
+                {
+                    Ok(v) => details.push(v),
+                    Err(e) => warn!(account = active.account.id, error = %e, "dump: order detail failed"),
+                }
+            }
+            // Scrub as one document so an id aliases the same way everywhere
+            // (the booking's own ids included, under keys the scrubber aliases).
+            let mut line = serde_json::json!({
+                "brand": t.brand.as_str(),
+                "target": { "reservationId": t.reservation_id, "passengerId": t.passenger_id },
+                "summary": summary,
+                "details": details,
+            });
+            royaltracker_api::scrub::scrub_json(&mut line);
+            println!("{line}");
+        }
+    }
+    Ok(())
 }
