@@ -48,10 +48,13 @@ const daysUntil = (iso) => {
 // anything else → "CUR x.xx".
 const moneyPrefix = (cur) => (!cur || cur === "USD" ? "$" : `${cur} `);
 const fmtMoney = (v, cur) => `${moneyPrefix(cur)}${v.toFixed(2)}`;
-const priceText = (r) =>
-  r.price_label
-    ? `${r.price_label}${r.unit_label ? ` · ${r.unit_label}` : ""}`
+// No sale running → only the list price is set; that's what it sells for.
+const priceText = (r) => {
+  const label = r.price_label || r.base_price_label;
+  return label
+    ? `${label}${r.unit_label ? ` · ${r.unit_label}` : ""}`
     : (r.starting_price ? `${r.starting_price} ${r.currency || ""}` : "no price yet");
+};
 
 const tgColor = (varName, fallback) => {
   const c = getComputedStyle(document.body).getPropertyValue(varName).trim();

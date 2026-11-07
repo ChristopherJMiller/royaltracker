@@ -103,6 +103,22 @@ impl GraphqlPrice {
         self.promotional_price.as_ref().and_then(|s| s.parse().ok())
     }
 
+    /// What it sells for today: the sale price, else the list price. With no
+    /// sale running the promo fields are all null and only the base is set.
+    pub fn price_f64(&self) -> Option<f64> {
+        self.promo_price_f64().or_else(|| {
+            self.shipboard_price
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .or_else(|| {
+                    self.formatted_base_price
+                        .as_deref()
+                        .and_then(parse_money_cents)
+                        .map(|c| c as f64 / 100.0)
+                })
+        })
+    }
+
     pub fn best_price_label(&self) -> Option<String> {
         self.formatted_promo_daily_price
             .clone()
@@ -243,4 +259,41 @@ pub async fn fetch_products_in_category(
         all.extend(page_products);
     }
     Ok(all)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn price(v: serde_json::Value) -> GraphqlPrice {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn price_prefers_promotional() {
+        let p = price(json!({
+            "promotionalPrice": "257.99",
+            "formattedPromotionalPrice": "$257.99",
+            "formattedBasePrice": "$369.00",
+        }));
+        assert_eq!(p.price_f64(), Some(257.99));
+    }
+
+    /// Live shape for Breezy Bay on 2026-11-06: no sale, list price only.
+    #[test]
+    fn price_falls_back_to_list_price() {
+        let p = price(json!({
+            "currency": "USD",
+            "promotionalPrice": null,
+            "shipboardPrice": null,
+            "formattedPromotionalPrice": null,
+            "formattedBasePrice": "$369.00",
+        }));
+        assert_eq!(p.price_f64(), Some(369.0));
+    }
+
+    #[test]
+    fn price_none_when_nothing_priced() {
+        assert_eq!(price(json!({})).price_f64(), None);
+    }
 }
