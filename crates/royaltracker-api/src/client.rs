@@ -549,7 +549,8 @@ fn json_id(v: &serde_json::Value) -> Option<String> {
 }
 
 /// Add every real cabin found on an order-detail's guests that belong to our own
-/// reservation to `tally`. Ignores placeholder rooms ("GTY"/"NONE"/blank).
+/// reservation to `tally`. Ignores placeholder rooms ("GTY"/"NONE"/blank) and
+/// masked ones: since Nov 2026 Royal sends unassigned guarantee cabins as "*****".
 fn collect_own_rooms(
     detail: &serde_json::Value,
     own: &HashSet<String>,
@@ -575,6 +576,7 @@ fn collect_own_rooms(
             if let Some(room) = g.get("stateroomNumber").and_then(|v| v.as_str()) {
                 let room = room.trim();
                 if !room.is_empty()
+                    && room.chars().all(|c| c.is_ascii_alphanumeric())
                     && !room.eq_ignore_ascii_case("GTY")
                     && !room.eq_ignore_ascii_case("NONE")
                 {
@@ -649,7 +651,40 @@ impl BookingSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_deckpic_src;
+    use super::{collect_own_rooms, extract_deckpic_src};
+    use std::collections::{HashMap, HashSet};
+
+    fn detail_with_rooms(rooms: &[&str]) -> serde_json::Value {
+        let guests: Vec<_> = rooms
+            .iter()
+            .enumerate()
+            .map(|(i, r)| serde_json::json!({ "id": format!("p{i}"), "stateroomNumber": r }))
+            .collect();
+        serde_json::json!({ "payload": { "orderHistoryDetailItems": [ { "guests": guests } ] } })
+    }
+
+    fn rooms_seen(rooms: &[&str]) -> HashMap<String, u32> {
+        let own: HashSet<String> = (0..rooms.len()).map(|i| format!("p{i}")).collect();
+        let mut tally = HashMap::new();
+        collect_own_rooms(&detail_with_rooms(rooms), &own, &mut tally);
+        tally
+    }
+
+    #[test]
+    fn real_rooms_are_counted() {
+        assert_eq!(rooms_seen(&["9434", "9434"]), HashMap::from([("9434".to_string(), 2)]));
+    }
+
+    #[test]
+    fn placeholder_rooms_are_ignored() {
+        assert!(rooms_seen(&["GTY", "NONE", " "]).is_empty());
+    }
+
+    #[test]
+    fn masked_rooms_are_ignored() {
+        // Royal began sending guarantee cabins masked in order history (Nov 2026).
+        assert!(rooms_seen(&["*****", "93**4"]).is_empty());
+    }
 
     #[test]
     fn deckpic_src_skips_the_gif_fallback() {
