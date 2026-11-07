@@ -296,8 +296,8 @@ fn into_snapshot(watched_id: i64, p: &ProductPrice) -> PriceSnapshot {
     PriceSnapshot {
         watched_id,
         fetched_at: Utc::now(),
-        adult_promo_price: p.adult_promo,
-        child_promo_price: p.child_promo,
+        adult_promo_price: p.adult_price(),
+        child_promo_price: p.child_price(),
         raw_response: p.raw.clone(),
     }
 }

@@ -31,7 +31,7 @@ pub async fn refresh_catalog_for_booking(
             product_code: prod.id.clone(),
             title: prod.title.clone().unwrap_or_default(),
             summary: None,
-            starting_price: price.and_then(|p| p.promo_price_f64()),
+            starting_price: price.and_then(|p| p.price_f64()),
             currency: price.and_then(|p| p.currency.clone()),
             price_label: price.and_then(|p| p.best_price_label()),
             base_price_label: price.and_then(|p| p.best_base_label()),
