@@ -40,12 +40,25 @@ struct OfferingPricing {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct Offering {
+    /// e.g. `33S2-XX20990101-A`: the variant code, then the sailing.
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     pricing: Option<OfferingPricing>,
 }
 
 impl ProductPrice {
     pub fn from_raw(raw: serde_json::Value) -> Self {
+        Self::pick(raw, None)
+    }
+
+    /// Like [`Self::from_raw`], but prefer the offerings of `requested_code`
+    /// (the variant that was booked) when the response lists several.
+    pub fn from_raw_for(raw: serde_json::Value, requested_code: &str) -> Self {
+        Self::pick(raw, Some(requested_code))
+    }
+
+    fn pick(raw: serde_json::Value, requested_code: Option<&str>) -> Self {
         let payload = raw.get("payload").cloned().unwrap_or(serde_json::Value::Null);
         let product_code = payload
             .get("id")
@@ -53,11 +66,18 @@ impl ProductPrice {
             .map(str::to_owned)
             .unwrap_or_default();
 
-        let offerings: Vec<Offering> = payload
+        let mut offerings: Vec<Offering> = payload
             .get("bookingOfferingData")
             .and_then(|b| b.get("offerings"))
             .and_then(|o| serde_json::from_value(o.clone()).ok())
             .unwrap_or_default();
+        if let Some(code) = requested_code {
+            let prefix = format!("{code}-");
+            let is_requested = |o: &Offering| o.id.as_deref().is_some_and(|id| id.starts_with(&prefix));
+            if offerings.iter().any(is_requested) {
+                offerings.retain(is_requested);
+            }
+        }
 
         // Take the first offering with a populated adultPromotionalPrice; with
         // no sale on any of them, the first priced one (list price only).
@@ -135,5 +155,31 @@ mod tests {
         let p = ProductPrice::from_raw(json!({ "payload": { "id": "X" } }));
         assert_eq!(p.adult_price(), None);
         assert_eq!(p.child_price(), None);
+    }
+}
+
+#[cfg(test)]
+mod variant_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn raw() -> serde_json::Value {
+        json!({ "payload": { "id": "AAA1", "bookingOfferingData": { "offerings": [
+            { "id": "AAA1-XX20990101-A", "pricing": { "adultPromotionalPrice": 10.0 } },
+            { "id": "AAA2-XX20990101-A", "pricing": { "adultPromotionalPrice": 20.0 } }
+        ] } } })
+    }
+
+    #[test]
+    fn offering_matches_requested_variant() {
+        assert_eq!(ProductPrice::from_raw_for(raw(), "AAA2").adult_price(), Some(20.0));
+    }
+
+    #[test]
+    fn unmatched_variant_behaves_like_from_raw() {
+        assert_eq!(
+            ProductPrice::from_raw_for(raw(), "ZZZZ").adult_price(),
+            ProductPrice::from_raw(raw()).adult_price()
+        );
     }
 }
