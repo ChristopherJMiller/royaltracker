@@ -13,7 +13,7 @@ use tracing::{info, warn};
 /// Prices within half a cent are the same price.
 const CENT: f64 = 0.005;
 
-fn round2(x: f64) -> f64 {
+pub(crate) fn round2(x: f64) -> f64 {
     (x * 100.0).round() / 100.0
 }
 

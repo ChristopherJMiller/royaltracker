@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use royaltracker_types::Diff;
 use royaltracker_telegram::{send_diff, send_text, Bot, DiffContext};
+pub use royaltracker_telegram::PaidComparison;
 
 /// Where a single alert is delivered. Core maps a stored subscriber
 /// (Telegram chat, web-push registration, or email) to one of these.
@@ -34,6 +35,8 @@ pub struct PriceDropAlert<'a> {
     pub currency: Option<&'a str>,
     /// Pricing unit shown after the new price, e.g. "per person / day".
     pub unit_label: Option<&'a str>,
+    /// Set for a booked item now cheaper than what was paid.
+    pub paid: Option<PaidComparison<'a>>,
 }
 
 /// A pre-rendered text alert (e.g. cabin assignment). `body` is emitted verbatim.
@@ -92,6 +95,7 @@ impl TelegramChannel {
             itinerary: alert.itinerary,
             currency: alert.currency,
             unit_label: alert.unit_label,
+            paid: alert.paid,
         };
         send_diff(&self.bot, chat_id, &ctx)
             .await

@@ -165,6 +165,7 @@ async fn main() -> Result<()> {
         &watched,
         &bookings_by_res,
         chrono::Utc::now().date_naive(),
+        &fresh_orders,
     )
     .await;
 

@@ -31,10 +31,55 @@ pub struct DiffContext<'a> {
     /// Pricing unit shown after the new price, e.g. "per person / day".
     /// `None` leaves the message unchanged.
     pub unit_label: Option<&'a str>,
+    /// Set when this is a booked item now cheaper than what was paid: the
+    /// message compares with what was paid instead of the last price.
+    pub paid: Option<PaidComparison<'a>>,
+}
+
+/// Today's price against what the cabin paid, pre-formatted. Labels are per
+/// person when everyone paid the same, otherwise cabin totals (`group`).
+#[derive(Debug, Clone, Copy)]
+pub struct PaidComparison<'a> {
+    pub now_label: &'a str,
+    pub paid_label: &'a str,
+    /// "per day" / "per night"; `None` for a one-off.
+    pub unit: Option<&'a str>,
+    /// `Some(n)`: guests paid different amounts, labels are totals for n.
+    pub group: Option<u32>,
+    pub savings_label: &'a str,
+    /// e.g. "2 guests × 7 days × $4.00"; only when everyone paid the same.
+    pub breakdown: Option<&'a str>,
+}
+
+/// The "cheaper than you paid" message.
+fn render_paid(ctx: &DiffContext<'_>, p: &PaidComparison<'_>) -> String {
+    let mut text = format!("🔻 *{} is cheaper than you paid*", escape_md_v2(ctx.label));
+    if let Some(itin) = ctx.itinerary {
+        text.push_str(&format!("\n🚢 {}", escape_md_v2(itin)));
+    }
+    let unit = p.unit.map(|u| format!(" {u}")).unwrap_or_default();
+    let group = p.group.map(|n| format!(" for {n}")).unwrap_or_default();
+    text.push_str(&format!(
+        "\n*{}*{} — you paid {}",
+        escape_md_v2(p.now_label),
+        escape_md_v2(&format!("{unit}{group}")),
+        escape_md_v2(p.paid_label),
+    ));
+    let line = match (p.group, p.breakdown) {
+        (Some(_), _) => format!("Rebook everyone to save {}", p.savings_label),
+        (None, Some(b)) => format!("Rebook to save {} ({b})", p.savings_label),
+        (None, None) => format!("Rebook to save {}", p.savings_label),
+    };
+    text.push('\n');
+    text.push_str(&escape_md_v2(&line));
+    text
 }
 
 /// Build the MarkdownV2 message text for a price drop.
 pub fn render_diff(ctx: &DiffContext<'_>) -> String {
+    if let Some(p) = &ctx.paid {
+        return render_paid(ctx, p);
+    }
     // Drops only (caller already filters); keep the down arrow.
     let arrow = "🔻";
     let label = escape_md_v2(ctx.label);
@@ -122,8 +167,57 @@ fn escape_md_v2(s: &str) -> String {
 mod tests {
     use super::*;
 
+    fn paid<'a>(
+        now: &'a str,
+        paid: &'a str,
+        unit: Option<&'a str>,
+        group: Option<u32>,
+        savings: &'a str,
+        breakdown: Option<&'a str>,
+    ) -> PaidComparison<'a> {
+        PaidComparison { now_label: now, paid_label: paid, unit, group, savings_label: savings, breakdown }
+    }
+
+    #[test]
+    fn paid_message_equal_guests() {
+        let d = Diff::from_prices(1, 145.98, 137.98);
+        let text = render_diff(&DiffContext {
+            itinerary: Some("Harmony of the Seas · 7 nights · Mar 14, 2027"),
+            paid: Some(paid("$68.99", "$72.99", Some("per day"), None, "$56.00", Some("2 guests × 7 days × $4.00"))),
+            ..ctx("Deluxe Beverage Package", &d)
+        });
+        assert_eq!(
+            text,
+            "🔻 *Deluxe Beverage Package is cheaper than you paid*\n🚢 Harmony of the Seas · 7 nights · Mar 14, 2027\n*$68\\.99* per day — you paid $72\\.99\nRebook to save $56\\.00 \\(2 guests × 7 days × $4\\.00\\)"
+        );
+    }
+
+    #[test]
+    fn paid_message_unequal_guests() {
+        let d = Diff::from_prices(1, 145.98, 137.98);
+        let text = render_diff(&DiffContext {
+            paid: Some(paid("$137.98", "$145.98", Some("per day"), Some(2), "$56.00", None)),
+            ..ctx("Deluxe Beverage Package", &d)
+        });
+        assert!(
+            text.ends_with("\n*$137\\.98* per day for 2 — you paid $145\\.98\nRebook everyone to save $56\\.00"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn paid_message_one_off() {
+        let d = Diff::from_prices(1, 219.99, 189.99);
+        let text = render_diff(&DiffContext {
+            msrp_label: Some("$249.00"),
+            paid: Some(paid("$189.99", "$219.99", None, None, "$30.00", None)),
+            ..ctx("Day Pass", &d)
+        });
+        assert_eq!(text, "🔻 *Day Pass is cheaper than you paid*\n*$189\\.99* — you paid $219\\.99\nRebook to save $30\\.00");
+    }
+
     fn ctx<'a>(label: &'a str, diff: &'a Diff) -> DiffContext<'a> {
-        DiffContext { label, diff, msrp_label: None, itinerary: None, currency: None, unit_label: None }
+        DiffContext { label, diff, msrp_label: None, itinerary: None, currency: None, unit_label: None, paid: None }
     }
 
     #[test]
