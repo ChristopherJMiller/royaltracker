@@ -71,12 +71,15 @@ impl ProductPrice {
             .and_then(|b| b.get("offerings"))
             .and_then(|o| serde_json::from_value(o.clone()).ok())
             .unwrap_or_default();
+        // Offering ids are the variant code itself (packages: `33S1`..`33S4`)
+        // or the code then the sailing (`ZHF3-XX20990101-A`). Only the
+        // requested variant's offerings count; none of them means no price,
+        // never another variant's.
         if let Some(code) = requested_code {
             let prefix = format!("{code}-");
-            let is_requested = |o: &Offering| o.id.as_deref().is_some_and(|id| id.starts_with(&prefix));
-            if offerings.iter().any(is_requested) {
-                offerings.retain(is_requested);
-            }
+            offerings.retain(|o| {
+                o.id.as_deref().is_some_and(|id| id == code || id.starts_with(&prefix))
+            });
         }
 
         // Take the first offering with a populated adultPromotionalPrice; with
@@ -176,10 +179,29 @@ mod variant_tests {
     }
 
     #[test]
-    fn unmatched_variant_behaves_like_from_raw() {
-        assert_eq!(
-            ProductPrice::from_raw_for(raw(), "ZZZZ").adult_price(),
-            ProductPrice::from_raw(raw()).adult_price()
-        );
+    fn exact_offering_id_matches() {
+        // Packages: offering ids are the bare variant codes (33S1..33S4).
+        let raw = json!({ "payload": { "id": "33S1", "bookingOfferingData": { "offerings": [
+            { "id": "33S1", "pricing": { "adultPromotionalPrice": 22.99 } },
+            { "id": "33S2", "pricing": { "adultPromotionalPrice": 37.99 } }
+        ] } } });
+        assert_eq!(ProductPrice::from_raw_for(raw, "33S2").adult_price(), Some(37.99));
+    }
+
+    #[test]
+    fn unmatched_variant_has_no_price() {
+        // Never fall back to another variant's (cheaper) price.
+        let p = ProductPrice::from_raw_for(raw(), "ZZZZ");
+        assert_eq!(p.adult_price(), None);
+        assert_eq!(p.child_price(), None);
+    }
+
+    #[test]
+    fn requested_variant_without_pricing_has_no_price() {
+        let raw = json!({ "payload": { "id": "33S1", "bookingOfferingData": { "offerings": [
+            { "id": "33S1", "pricing": { "adultPromotionalPrice": 22.99 } },
+            { "id": "33S2", "pricing": null }
+        ] } } });
+        assert_eq!(ProductPrice::from_raw_for(raw, "33S2").adult_price(), None);
     }
 }

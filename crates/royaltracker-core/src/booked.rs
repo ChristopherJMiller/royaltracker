@@ -62,6 +62,33 @@ pub async fn read_account_orders(
     out
 }
 
+/// Failed reads for the user's upcoming RCG bookings this account didn't
+/// read (its login or booking list failed, or the booking wasn't listed).
+/// Without them the other account's partial view would look complete and
+/// this account's purchases would look cancelled.
+pub fn unread_bookings(
+    bookings: &[Booking],
+    targets: &[OrderTarget],
+    today: chrono::NaiveDate,
+) -> Vec<OrderRead> {
+    let read: HashSet<&str> = targets.iter().map(|t| t.reservation_id.as_str()).collect();
+    bookings
+        .iter()
+        .filter(|b| b.brand != Brand::Princess && !b.has_departed(today))
+        .filter(|b| !read.contains(b.reservation_id.as_str()))
+        .map(|b| OrderRead {
+            reservation_id: b.reservation_id.clone(),
+            lines: Err("not read by this account".into()),
+        })
+        .collect()
+}
+
+/// Per-day and per-night purchases can only be priced per unit with the
+/// booking's night count; without it the booking's orders aren't usable.
+pub fn nights_cover(lines: &[OrderLine], nights: Option<i32>) -> bool {
+    nights.is_some_and(|n| n > 0) || lines.iter().all(|l| l.unit == PaidUnit::Each)
+}
+
 /// Merge every account's reads per reservation. A reservation is kept only
 /// when every read of it succeeded, so a half-read booking never looks like
 /// its other purchases were cancelled. Lines seen by more than one account
@@ -110,6 +137,10 @@ pub async fn apply_order_reads(
         let Some(booking) = bookings.get(&res) else {
             continue;
         };
+        if !nights_cover(&lines, booking.nights) {
+            warn!("per-day purchases but no night count; keeping last booked items");
+            continue;
+        }
         let items = summarize_orders(&res, booking.nights, &lines, Utc::now());
         let changes = match repo.replace_booked_items(&res, &items).await {
             Ok(c) => c,
@@ -163,9 +194,11 @@ pub fn summarize_orders(
             continue;
         }
         let key = (l.product_code.as_str(), l.guest_id.as_str());
-        let newer = latest
-            .get(&key)
-            .is_none_or(|prev| (l.order_date, &l.order_code) > (prev.order_date, &prev.order_code));
+        // Order dates carry no time: on a same-day tie (a rebook whose old
+        // order isn't cancelled yet) the cheaper line is the rebook.
+        let newer = latest.get(&key).is_none_or(|prev| {
+            (l.order_date, -l.subtotal, &l.order_code) > (prev.order_date, -prev.subtotal, &prev.order_code)
+        });
         if newer {
             latest.insert(key, l);
         }
@@ -511,5 +544,109 @@ mod merge_tests {
     #[test]
     fn all_failed_is_stale() {
         assert!(merge_reads(vec![failed("R3"), failed("R3")]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod review_fix_tests {
+    use super::*;
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use royaltracker_api::OrderLine;
+    use royaltracker_types::{Booking, Brand, GuestType, PaidUnit};
+
+    fn booking(res: &str, brand: Brand, sail: (i32, u32, u32)) -> Booking {
+        Booking {
+            reservation_id: res.into(),
+            brand,
+            account_id: "a".into(),
+            ship_code: "QQ".into(),
+            sail_date: NaiveDate::from_ymd_opt(sail.0, sail.1, sail.2).unwrap(),
+            passenger_id: Some("p".into()),
+            nights: Some(7),
+            package_code: None,
+            stateroom: None,
+            assigned_stateroom: None,
+            voyage_code: None,
+            currency: None,
+            deck_name: None,
+            cabin_category: None,
+        }
+    }
+
+    fn target(res: &str) -> OrderTarget {
+        OrderTarget {
+            brand: Brand::Royal,
+            reservation_id: res.into(),
+            ship_code: "QQ".into(),
+            sail_wire: "20990101".into(),
+            passenger_id: "p".into(),
+        }
+    }
+
+    fn line(code: &str, date: &str, subtotal: f64, unit: PaidUnit) -> OrderLine {
+        OrderLine {
+            order_code: code.into(),
+            order_date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
+            guest_id: "g1".into(),
+            guest_reservation_id: None,
+            guest_type: GuestType::Adult,
+            category_prefix: "beverage".into(),
+            product_code: "3222".into(),
+            title: "Deluxe Beverage Package".into(),
+            unit,
+            subtotal,
+            quantity: 1,
+            currency: None,
+        }
+    }
+
+    /// An account that couldn't read a booking it is on (login or listing
+    /// failed) must make that booking stale, not invisible.
+    #[test]
+    fn unread_bookings_become_failed_reads() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 7).unwrap();
+        let bookings = [
+            booking("R1", Brand::Royal, (2027, 2, 7)),
+            booking("R2", Brand::Celebrity, (2027, 5, 7)),
+            booking("R3", Brand::Princess, (2027, 1, 1)),
+            booking("R4", Brand::Royal, (2026, 9, 1)),
+        ];
+        let reads = unread_bookings(&bookings, &[target("R1")], today);
+        assert_eq!(reads.iter().map(|r| r.reservation_id.as_str()).collect::<Vec<_>>(), ["R2"]);
+        assert!(reads[0].lines.is_err());
+
+        let all = unread_bookings(&bookings, &[], today);
+        assert_eq!(all.iter().map(|r| r.reservation_id.as_str()).collect::<Vec<_>>(), ["R1", "R2"]);
+        let merged = merge_reads(all.into_iter().chain([OrderRead {
+            reservation_id: "R1".into(),
+            lines: Ok(vec![]),
+        }]).collect());
+        assert!(merged.is_empty(), "R1 read by one account only must stay stale");
+    }
+
+    #[test]
+    fn per_day_lines_need_nights() {
+        let day = [line("O1", "2026-11-05", 482.93, PaidUnit::Day)];
+        let once = [line("O1", "2026-11-05", 76.99, PaidUnit::Each)];
+        assert!(!nights_cover(&day, None));
+        assert!(!nights_cover(&day, Some(0)));
+        assert!(nights_cover(&day, Some(7)));
+        assert!(nights_cover(&once, None));
+        assert!(nights_cover(&[], None));
+    }
+
+    /// Same-day rebook where the old order still shows BOOKED: the cheaper
+    /// line wins whatever the order codes sort as.
+    #[test]
+    fn same_day_tie_prefers_cheaper() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 7, 12, 0, 0).unwrap();
+        for (a, b) in [("O-A", "O-B"), ("O-B", "O-A")] {
+            let lines = [
+                line(a, "2026-11-05", 510.93, PaidUnit::Day),
+                line(b, "2026-11-05", 482.93, PaidUnit::Day),
+            ];
+            let items = summarize_orders("R", Some(7), &lines, now);
+            assert_eq!(items[0].paid_total, 68.99, "{a}/{b}");
+        }
     }
 }
