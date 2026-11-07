@@ -2,7 +2,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use royaltracker_storage::{CatalogEntry, DeckPlan, HistoryPoint, PriceRepo};
-use royaltracker_types::AlertMode;
+use royaltracker_core::booked::{paid_label, paid_status, today_total, PaidStatus};
+use royaltracker_types::{format_money, AlertMode, BookedItem, Booking, PriceSnapshot};
+use std::collections::HashMap;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -546,23 +548,73 @@ pub struct WatchedDto {
     /// when it's older than the daily scrape cadence, so a silently-failed
     /// fetch (which writes no snapshot) doesn't masquerade as a live price.
     pub latest_fetched_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Set when the cabin has bought this item (from order history).
+    pub booked: Option<BookedDto>,
+}
+
+/// What the cabin paid for a tracked item, against today's price.
+#[derive(Serialize)]
+pub struct BookedDto {
+    /// "$72.99/day", or the cabin total when guests paid different amounts.
+    pub paid_label: String,
+    /// "cheaper" | "same" | "paid_less" | "unknown" (no price yet).
+    pub status: &'static str,
+    /// Total saved by rebooking everyone now; only when "cheaper".
+    pub savings_label: Option<String>,
+    pub orders_read_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn booked_dto(
+    item: &BookedItem,
+    snap: Option<&PriceSnapshot>,
+    nights: Option<i32>,
+    currency: Option<&str>,
+) -> BookedDto {
+    let today = snap.and_then(|s| today_total(item, s.adult_promo_price, s.child_promo_price));
+    let (status, savings_label) = match today.map(|t| paid_status(item, t, nights)) {
+        None => ("unknown", None),
+        Some(PaidStatus::Cheaper { savings }) => {
+            let money = format_money(savings, currency);
+            ("cheaper", Some(money.strip_suffix(".00").unwrap_or(&money).to_string()))
+        }
+        Some(PaidStatus::Same) => ("same", None),
+        Some(PaidStatus::PaidLess) => ("paid_less", None),
+    };
+    BookedDto {
+        paid_label: paid_label(item, currency),
+        status,
+        savings_label,
+        orders_read_at: item.orders_read_at,
+    }
 }
 
 pub async fn list_watched(
     State(s): State<Arc<AppState>>,
     user: AuthedUser,
 ) -> Result<Json<Vec<WatchedDto>>, ApiError> {
-    let mine = current_bookings_for(&s, user.db_user.id, Utc::now().date_naive()).await?;
-    let my_reservations: std::collections::HashSet<String> =
-        mine.into_iter().map(|b| b.reservation_id).collect();
+    let mine: HashMap<String, Booking> =
+        current_bookings_for(&s, user.db_user.id, Utc::now().date_naive())
+            .await?
+            .into_iter()
+            .map(|b| (b.reservation_id.clone(), b))
+            .collect();
 
     let ws = s.repo.list_active_watched().await.map_err(db_err)?;
+    let mut booked_by_res: HashMap<String, Vec<BookedItem>> = HashMap::new();
     let mut out = Vec::with_capacity(ws.len());
     for w in ws {
-        if !my_reservations.contains(&w.reservation_id) {
+        let Some(booking) = mine.get(&w.reservation_id) else {
             continue;
+        };
+        if !booked_by_res.contains_key(&w.reservation_id) {
+            let items = s.repo.list_booked_items(&w.reservation_id).await.map_err(db_err)?;
+            booked_by_res.insert(w.reservation_id.clone(), items);
         }
         let latest = s.repo.latest_snapshot(w.id).await.map_err(db_err)?;
+        let booked = booked_by_res[&w.reservation_id]
+            .iter()
+            .find(|i| i.product_code == w.product_code)
+            .map(|i| booked_dto(i, latest.as_ref(), booking.nights, booking.currency.as_deref()));
         let latest_price = latest.as_ref().and_then(|s| s.adult_promo_price);
         let latest_fetched_at = latest.map(|s| s.fetched_at);
         out.push(WatchedDto {
@@ -571,10 +623,15 @@ pub async fn list_watched(
             category_prefix: w.category_prefix,
             product_code: w.product_code,
             label: w.label,
-            alert_mode: w.alert_mode.to_string(),
+            alert_mode: if w.alert_on_paid {
+                "below_paid".to_string()
+            } else {
+                w.alert_mode.to_string()
+            },
             alert_threshold: w.alert_threshold,
             latest_price,
             latest_fetched_at,
+            booked,
         });
     }
     Ok(Json(out))
@@ -681,6 +738,24 @@ pub async fn set_alert(
 ) -> Result<StatusCode, ApiError> {
     if !watch_belongs_to_user(&*s.repo, user.db_user.id, id).await? {
         return Err((StatusCode::NOT_FOUND, "watch not found".into()));
+    }
+    if body.alert_mode == "below_paid" {
+        let watches = s.repo.list_active_watched().await.map_err(db_err)?;
+        let Some(w) = watches.into_iter().find(|w| w.id == id) else {
+            return Err((StatusCode::NOT_FOUND, "watch not found".into()));
+        };
+        let booked = s
+            .repo
+            .list_booked_items(&w.reservation_id)
+            .await
+            .map_err(db_err)?
+            .iter()
+            .any(|i| i.product_code == w.product_code);
+        if !booked {
+            return Err((StatusCode::BAD_REQUEST, "nothing booked for this item".into()));
+        }
+        s.repo.set_watch_alert_on_paid(id).await.map_err(db_err)?;
+        return Ok(StatusCode::NO_CONTENT);
     }
     let mode = body
         .alert_mode
@@ -910,5 +985,69 @@ mod tests {
         let b: RegisterBody =
             serde_json::from_str(r#"{"cruise_line":"princess","login":"X","password":"p"}"#).unwrap();
         assert_eq!(b.cruise_line, CruiseLine::Princess);
+    }
+}
+
+#[cfg(test)]
+mod booked_tests {
+    use super::*;
+    use chrono::TimeZone;
+    use royaltracker_types::{BookedItem, PaidUnit, PriceSnapshot};
+
+    fn item() -> BookedItem {
+        BookedItem {
+            reservation_id: "R".into(),
+            category_prefix: "beverage".into(),
+            product_code: "P1".into(),
+            title: "Deluxe Beverage Package".into(),
+            unit: PaidUnit::Day,
+            adults: 2,
+            children: 0,
+            paid_total: 145.98,
+            paid_each: Some(72.99),
+            currency: None,
+            last_alert_total: None,
+            orders_read_at: Utc.with_ymd_and_hms(2026, 11, 7, 12, 0, 0).unwrap(),
+        }
+    }
+
+    fn snap(adult: f64) -> PriceSnapshot {
+        PriceSnapshot {
+            watched_id: 1,
+            fetched_at: Utc::now(),
+            adult_promo_price: Some(adult),
+            child_promo_price: None,
+            raw_response: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn cheaper_dto() {
+        let d = booked_dto(&item(), Some(&snap(68.99)), Some(7), None);
+        assert_eq!(d.paid_label, "$72.99/day");
+        assert_eq!(d.status, "cheaper");
+        assert_eq!(d.savings_label.as_deref(), Some("$56"));
+        assert_eq!(d.orders_read_at, item().orders_read_at);
+    }
+
+    #[test]
+    fn cents_kept_when_not_whole_dollars() {
+        let d = booked_dto(&item(), Some(&snap(68.74)), Some(7), None);
+        assert_eq!(d.savings_label.as_deref(), Some("$59.50"));
+    }
+
+    #[test]
+    fn no_snapshot_is_unknown() {
+        let d = booked_dto(&item(), None, Some(7), None);
+        assert_eq!(d.status, "unknown");
+        assert_eq!(d.savings_label, None);
+    }
+
+    #[test]
+    fn same_and_paid_less() {
+        assert_eq!(booked_dto(&item(), Some(&snap(72.99)), Some(7), None).status, "same");
+        let d = booked_dto(&item(), Some(&snap(75.0)), Some(7), None);
+        assert_eq!(d.status, "paid_less");
+        assert_eq!(d.savings_label, None);
     }
 }

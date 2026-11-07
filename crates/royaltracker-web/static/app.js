@@ -389,7 +389,27 @@ function BookingHeader({ booking }) {
     </div>`;
 }
 
+// What the cabin paid against today's price, for an item it has booked.
+function BookedRow({ booked }) {
+  if (!booked) return null;
+  return html`
+    <div class="flex flex-wrap items-center gap-1.5 mt-1">
+      <span class="text-xs font-medium rounded-full px-2 py-0.5 border border-tg-hint/40">
+        Booked ${booked.paid_label}
+      </span>
+      ${booked.status === "cheaper" && html`
+        <span class="text-xs font-medium rounded-full px-2 py-0.5 bg-blue-100 text-blue-900">
+          Save ${booked.savings_label} if you rebook
+        </span>`}
+      ${booked.status === "same" && html`<span class="text-xs text-tg-hint">same price</span>`}
+      ${booked.status === "paid_less" && html`<span class="text-xs text-tg-hint">you paid less</span>`}
+    </div>`;
+}
+
 function alertSummary(w, cur) {
+  if (w.alert_mode === "below_paid") {
+    return "🔔 below what you paid";
+  }
   if (w.alert_mode === "below_threshold" && w.alert_threshold != null) {
     return `🔔 below ${fmtMoney(w.alert_threshold, cur)}`;
   }
@@ -414,6 +434,7 @@ function WatchedList({ watched, booking, onOpen, onRemove }) {
                 ${w.latest_price != null ? fmtMoney(w.latest_price, booking.currency) : "—"}
               </span>
             </div>
+            <${BookedRow} booked=${w.booked} />
             <div class="text-xs text-tg-hint mt-1">
               ${alertSummary(w, booking.currency)} · ${stale ? html`<span class="text-yellow-500">⚠ ${stale}</span> · ` : ""}tap for chart →
             </div>
@@ -710,6 +731,13 @@ function AlertEditor({ watched, currency, onSaved }) {
   return html`
     <div class="bg-tg-secondary rounded-lg p-3 space-y-3">
       <h3 class="text-sm uppercase tracking-wide text-tg-hint">Alerts</h3>
+      ${watched.booked && html`
+        <label class="flex items-center gap-2 text-sm">
+          <input type="radio" name="mode" value="below_paid"
+                 checked=${mode === "below_paid"}
+                 onChange=${() => setMode("below_paid")} />
+          Below what you paid (${watched.booked.paid_label})
+        </label>`}
       <label class="flex items-center gap-2 text-sm">
         <input type="radio" name="mode" value="any_drop"
                checked=${mode === "any_drop"}
