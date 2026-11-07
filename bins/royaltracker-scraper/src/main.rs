@@ -5,7 +5,8 @@ use royaltracker_api::{
 };
 use royaltracker_config::{Config, PacingSettings};
 use royaltracker_core::{
-    discover_account, run_public_sweep, run_scrape_cycle, sleep_with_jitter, PublicSweepConfig,
+    apply_order_reads, discover_account, read_account_orders, run_public_sweep, run_scrape_cycle,
+    sleep_with_jitter, AccountDiscovery, PublicSweepConfig,
 };
 use royaltracker_crypto::Cipher;
 use royaltracker_notify::{Dispatcher, Notifier, WebPushChannel};
@@ -105,10 +106,15 @@ async fn main() -> Result<()> {
     }
 
     let mut clients_by_brand: HashMap<Brand, CruiseClient> = HashMap::new();
+    // Order history is relative to the account asking, so each account reads
+    // its own view with its own client before the clients are pooled.
+    let order_gap = pacing(&cfg.pacing).min_interval;
+    let mut order_reads = Vec::new();
     for active in &accounts {
         match discover_for_account(&repo, &cipher, &dispatcher, &cfg.rcg_basic_auth_b64, active).await {
-            Ok(rcg_clients) => {
-                for (brand, client) in rcg_clients {
+            Ok(d) => {
+                order_reads.extend(read_account_orders(&d.rcg_clients, &d.order_targets, order_gap).await);
+                for (brand, client) in d.rcg_clients {
                     clients_by_brand.entry(brand).or_insert(client);
                 }
             }
@@ -124,6 +130,20 @@ async fn main() -> Result<()> {
         }
     }
 
+    let bookings_by_res: HashMap<String, Booking> = repo
+        .list_bookings()
+        .await
+        .context("list bookings")?
+        .into_iter()
+        .map(|b| (b.reservation_id.clone(), b))
+        .collect();
+
+    // What each cabin has bought: refresh booked items and their watches
+    // before listing watches, so a newly booked item is priced this run.
+    let reads_total = order_reads.len();
+    let fresh_orders = apply_order_reads(&repo as &dyn PriceRepo, &bookings_by_res, order_reads).await;
+    info!(reads = reads_total, fresh_bookings = fresh_orders.len(), "order history refreshed");
+
     // Phase B: per-booking price scrape with fan-out. Each watched product is
     // fetched exactly once regardless of how many users share the booking.
     if clients_by_brand.is_empty() && princess_client.is_none() {
@@ -136,14 +156,6 @@ async fn main() -> Result<()> {
         info!("no products configured; nothing to scrape");
         return Ok(());
     }
-
-    let bookings_by_res: HashMap<String, Booking> = repo
-        .list_bookings()
-        .await
-        .context("list bookings")?
-        .into_iter()
-        .map(|b| (b.reservation_id.clone(), b))
-        .collect();
 
     let outcome = run_scrape_cycle(
         &clients_by_brand,
@@ -175,7 +187,7 @@ async fn discover_for_account(
     notifier: &dyn Notifier,
     basic_auth_b64: &str,
     active: &ActiveAccount,
-) -> anyhow::Result<HashMap<Brand, CruiseClient>> {
+) -> anyhow::Result<AccountDiscovery> {
     let password_bytes = cipher.decrypt(&active.account.password_nonce, &active.account.password_ct)?;
     let password = String::from_utf8(password_bytes)?;
 
@@ -199,7 +211,7 @@ async fn discover_for_account(
         "bookings discovered+persisted"
     );
 
-    Ok(d.rcg_clients)
+    Ok(d)
 }
 
 /// One-off recon (`ROYALTRACKER_DUMP_ORDERS=1`): print each upcoming RCG
