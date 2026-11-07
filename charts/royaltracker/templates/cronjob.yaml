@@ -5,6 +5,9 @@ metadata:
   labels: {{- include "royaltracker.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.scraper.schedule | quote }}
+  {{- with .Values.scraper.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: {{ .Values.scraper.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ .Values.scraper.failedJobsHistoryLimit }}
