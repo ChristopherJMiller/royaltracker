@@ -32,8 +32,10 @@ bot:
   port: 8080
 
 scraper:
-  # Cron expression in UTC. Daily at 07:17 + ±10min in-binary jitter.
-  schedule: "17 7 * * *"
+  # Cron expression, read in `timeZone` (DST-aware; needs Kubernetes ≥1.27).
+  # Daily at 07:00 Eastern, then 0–`jitterMinutes` of in-binary jitter.
+  schedule: "0 7 * * *"
+  timeZone: America/New_York
   resources:
     requests: { cpu: 25m, memory: 64Mi }
     limits:   { memory: 256Mi }
