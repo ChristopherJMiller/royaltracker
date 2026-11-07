@@ -3,6 +3,7 @@ mod catalog;
 mod client;
 mod error;
 mod graphql;
+mod orders;
 mod public;
 pub mod princess;
 pub mod scrub;
@@ -15,6 +16,7 @@ pub use client::{
 };
 pub use error::ApiError;
 pub use graphql::{parse_money_cents, Category, GraphqlProduct};
+pub use orders::{OrderLine, OrderRef};
 pub use public::{
     is_bot_challenge, PacingConfig, PublicClient, PublicClientConfig, PublicFetch, PublicProduct,
 };

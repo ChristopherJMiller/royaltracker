@@ -617,6 +617,68 @@ impl Diff {
 
 /// Format a price for display. `None` or `"USD"` renders as `$24.99`; any other
 /// currency as `AUD 24.94`.
+/// How a booked add-on is priced: per day, per night, or once per unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaidUnit {
+    Day,
+    Night,
+    Each,
+}
+
+impl PaidUnit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PaidUnit::Day => "day",
+            PaidUnit::Night => "night",
+            PaidUnit::Each => "each",
+        }
+    }
+}
+
+impl std::str::FromStr for PaidUnit {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "day" => Ok(PaidUnit::Day),
+            "night" => Ok(PaidUnit::Night),
+            "each" => Ok(PaidUnit::Each),
+            other => Err(format!("unknown paid unit: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GuestType {
+    Adult,
+    Child,
+}
+
+/// What a booking's cabin paid for one add-on, from Cruise Planner order
+/// history. `paid_total` is the cabin's total per unit: per day for
+/// [`PaidUnit::Day`], per night for [`PaidUnit::Night`], whole for
+/// [`PaidUnit::Each`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookedItem {
+    pub reservation_id: String,
+    pub category_prefix: String,
+    /// The variant that was bought; the same key watches use.
+    pub product_code: String,
+    pub title: String,
+    pub unit: PaidUnit,
+    pub adults: u32,
+    pub children: u32,
+    pub paid_total: f64,
+    /// `Some` when every guest paid the same per unit.
+    pub paid_each: Option<f64>,
+    pub currency: Option<String>,
+    /// Today's cabin total when we last alerted; reset when `paid_total`
+    /// changes (a rebook). Managed by storage.
+    pub last_alert_total: Option<f64>,
+    /// When the order history behind this row was read.
+    pub orders_read_at: DateTime<Utc>,
+}
+
 pub fn format_money(amount: f64, currency: Option<&str>) -> String {
     match currency {
         None | Some("USD") => format!("${amount:.2}"),
