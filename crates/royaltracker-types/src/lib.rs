@@ -572,6 +572,9 @@ pub struct WatchedProduct {
     pub active: bool,
     pub alert_mode: AlertMode,
     pub alert_threshold: Option<f64>,
+    /// Alert when the price drops below what the cabin paid (a booked item),
+    /// instead of by `alert_mode`.
+    pub alert_on_paid: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

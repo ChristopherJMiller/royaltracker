@@ -65,6 +65,7 @@ mod tests {
             active: true,
             alert_mode: mode,
             alert_threshold: threshold,
+            alert_on_paid: false,
         }
     }
 
