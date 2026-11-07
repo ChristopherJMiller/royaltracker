@@ -409,10 +409,13 @@ fn itinerary_label(b: &Booking) -> String {
         .as_deref()
         .or_else(|| b.stateroom.as_deref().filter(|r| *r != "GTY"));
     if let Some(cabin) = effective_cabin {
-        let suffix = if b.assigned_stateroom.is_some() {
-            " (assigned)"
-        } else {
+        // "?" = the last room we saw before Royal started hiding it.
+        let suffix = if b.assigned_stateroom.is_none() {
             ""
+        } else if b.is_gty() && b.assigned_hidden_since.is_some() {
+            "?"
+        } else {
+            " (assigned)"
         };
         s.push_str(&format!(" · cabin {cabin}{suffix}"));
         if let Some(deck) = royaltracker_types::deck_of_cabin(cabin) {
@@ -484,6 +487,7 @@ mod tests {
             package_code: None,
             stateroom: None,
             assigned_stateroom: None,
+            assigned_hidden_since: None,
             voyage_code: None,
             currency: None,
             deck_name: None,
@@ -530,6 +534,16 @@ mod tests {
         b.ship_code = "ST".into();
         b.stateroom = Some("9434".into());
         assert!(itinerary_label(&b).ends_with("· cabin 9434 · deck 9"), "a numbered deck wins");
+    }
+
+    #[test]
+    fn alert_label_marks_a_hidden_gty_room() {
+        let mut b = booking("3333333", NaiveDate::from_ymd_opt(2027, 3, 1).unwrap());
+        b.stateroom = Some("GTY".into());
+        b.assigned_stateroom = Some("9434".into());
+        assert!(itinerary_label(&b).ends_with("· cabin 9434 (assigned) · deck 9"));
+        b.assigned_hidden_since = NaiveDate::from_ymd_opt(2026, 11, 4);
+        assert!(itinerary_label(&b).ends_with("· cabin 9434? · deck 9"), "{}", itinerary_label(&b));
     }
 }
 

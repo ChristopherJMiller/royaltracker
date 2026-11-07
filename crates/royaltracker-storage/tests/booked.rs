@@ -55,6 +55,7 @@ async fn repo() -> Option<(DefaultRepo, String)> {
         package_code: None,
         stateroom: None,
         assigned_stateroom: None,
+        assigned_hidden_since: None,
         voyage_code: None,
         currency: None,
         deck_name: None,

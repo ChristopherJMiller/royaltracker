@@ -11,7 +11,7 @@ pub mod scrub;
 pub use auth::{TokenState, decode_account_id};
 pub use catalog::ProductPrice;
 pub use client::{
-    build_emulated_client, warm_up_host, BookingSummary, CruiseClient, CruiseClientConfig,
+    build_emulated_client, warm_up_host, AssignedRoom, BookingSummary, CruiseClient, CruiseClientConfig,
     DEFAULT_USER_AGENT,
 };
 pub use error::ApiError;

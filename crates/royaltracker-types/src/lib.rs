@@ -204,6 +204,10 @@ pub struct Booking {
     /// least one order leaked the room; `None` otherwise.
     #[serde(default)]
     pub assigned_stateroom: Option<String>,
+    /// The day Royal started masking the room in order history. While set,
+    /// [`Self::assigned_stateroom`] is the last room we saw, not a current one.
+    #[serde(default)]
+    pub assigned_hidden_since: Option<NaiveDate>,
     /// Princess voyage code (e.g. `5543`); `None` for RCG bookings.
     #[serde(default)]
     pub voyage_code: Option<String>,
@@ -877,6 +881,7 @@ mod tests {
             package_code: None,
             stateroom: None,
             assigned_stateroom: None,
+            assigned_hidden_since: None,
             voyage_code: None,
             currency: None,
             deck_name: None,

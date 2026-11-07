@@ -307,8 +307,9 @@ impl PriceRepo for SqliteRepo {
             r#"
             INSERT INTO bookings (reservation_id, brand, account_id, ship_code, sail_date,
                                   passenger_id, nights, package_code, stateroom, assigned_stateroom,
-                                  voyage_code, currency, sailing_id, deck_name, cabin_category)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                  voyage_code, currency, sailing_id, deck_name, cabin_category,
+                                  assigned_hidden_since)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
             ON CONFLICT(reservation_id) DO UPDATE SET
                 brand = excluded.brand,
                 account_id = excluded.account_id,
@@ -327,6 +328,12 @@ impl PriceRepo for SqliteRepo {
                 cabin_category = CASE WHEN excluded.stateroom IS NULL THEN bookings.cabin_category
                                       ELSE excluded.cabin_category END,
                 assigned_stateroom = COALESCE(excluded.assigned_stateroom, bookings.assigned_stateroom),
+                -- Royal masking the room keeps the last one we saw, dated from the first
+                -- morning it went hidden; a real room or an official assignment ends that.
+                assigned_hidden_since = CASE
+                    WHEN excluded.assigned_stateroom IS NOT NULL
+                      OR (excluded.stateroom IS NOT NULL AND excluded.stateroom <> 'GTY') THEN NULL
+                    ELSE COALESCE(bookings.assigned_hidden_since, excluded.assigned_hidden_since) END,
                 voyage_code = excluded.voyage_code,
                 currency = excluded.currency,
                 sailing_id = excluded.sailing_id,
@@ -350,6 +357,7 @@ impl PriceRepo for SqliteRepo {
         .bind(sailing_id)
         .bind(&b.deck_name)
         .bind(&b.cabin_category)
+        .bind(b.assigned_hidden_since.map(|d| d.format("%Y-%m-%d").to_string()))
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() == 0 {
@@ -364,7 +372,7 @@ impl PriceRepo for SqliteRepo {
 
     async fn list_bookings(&self) -> Result<Vec<Booking>, StorageError> {
         let rows = sqlx::query(
-            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom, voyage_code, currency, deck_name, cabin_category FROM bookings ORDER BY sail_date",
+            "SELECT reservation_id, brand, account_id, ship_code, sail_date, passenger_id, nights, package_code, stateroom, assigned_stateroom, assigned_hidden_since, voyage_code, currency, deck_name, cabin_category FROM bookings ORDER BY sail_date",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -376,7 +384,7 @@ impl PriceRepo for SqliteRepo {
         let rows = sqlx::query(
             r#"SELECT b.reservation_id, b.brand, b.account_id, b.ship_code, b.sail_date,
                       b.passenger_id, b.nights, b.package_code, b.stateroom, b.assigned_stateroom,
-                      b.voyage_code, b.currency, b.deck_name, b.cabin_category
+                      b.assigned_hidden_since, b.voyage_code, b.currency, b.deck_name, b.cabin_category
                FROM bookings b
                JOIN booking_subscribers s ON s.reservation_id = b.reservation_id
                WHERE s.user_id = ?1
@@ -1334,6 +1342,11 @@ fn row_to_booking_sqlite(r: sqlx::sqlite::SqliteRow) -> Result<Booking, StorageE
         package_code: r.try_get("package_code")?,
         stateroom: r.try_get("stateroom")?,
         assigned_stateroom: r.try_get("assigned_stateroom")?,
+        assigned_hidden_since: r
+            .try_get::<Option<String>, _>("assigned_hidden_since")?
+            .map(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d"))
+            .transpose()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         voyage_code: r.try_get("voyage_code")?,
         currency: r.try_get("currency")?,
         deck_name: r.try_get("deck_name")?,

@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use royaltracker_api::{CruiseClient, CruiseClientConfig};
+use royaltracker_api::{AssignedRoom, CruiseClient, CruiseClientConfig};
 use royaltracker_storage::{PriceRepo, StorageError};
 use royaltracker_notify::{NotifyTarget, Notifier, TextAlert};
 use royaltracker_types::{Booking, Brand, CruiseAccount, CruiseLine, User};
@@ -177,9 +177,12 @@ pub async fn discover_with_clients(
             // reservation's purchased-order records (the room leaks there even
             // while the booking still displays "GTY"). Best-effort: a failure
             // just leaves the cabin undiscovered this cycle. Skipped once the
-            // ship has sailed; the upsert keeps any cabin found earlier.
-            let sailed = sail_date <= chrono::Utc::now().date_naive();
-            let assigned_stateroom = match (is_gty, passenger_id.as_deref(), sail_wire.as_deref()) {
+            // ship has sailed; the upsert keeps any cabin found earlier. When
+            // Royal masks the room, the upsert keeps the last one we saw and
+            // dates it from today.
+            let today = chrono::Utc::now().date_naive();
+            let sailed = sail_date <= today;
+            let (assigned_stateroom, assigned_hidden_since) = match (is_gty, passenger_id.as_deref(), sail_wire.as_deref()) {
                 (true, Some(pax), Some(sail)) if !own_pax_ids.is_empty() && !sailed => {
                     match client
                         .discover_assigned_stateroom(
@@ -192,19 +195,22 @@ pub async fn discover_with_clients(
                         )
                         .await
                     {
-                        Ok(room) => {
-                            if let Some(r) = &room {
-                                info!(reservation = %reservation_id, cabin = %r, "recovered GTY cabin");
-                            }
-                            room
+                        Ok(AssignedRoom::Room(r)) => {
+                            info!(reservation = %reservation_id, cabin = %r, "recovered GTY cabin");
+                            (Some(r), None)
                         }
+                        Ok(AssignedRoom::Hidden) => {
+                            info!(reservation = %reservation_id, "GTY cabin hidden by Royal");
+                            (None, Some(today))
+                        }
+                        Ok(AssignedRoom::Unknown) => (None, None),
                         Err(e) => {
                             warn!(reservation = %reservation_id, error = %e, "assigned-stateroom discovery failed");
-                            None
+                            (None, None)
                         }
                     }
                 }
-                _ => None,
+                _ => (None, None),
             };
 
             let booking = Booking {
@@ -218,6 +224,7 @@ pub async fn discover_with_clients(
                 package_code: summary.package_code,
                 stateroom: displayed_stateroom,
                 assigned_stateroom,
+                assigned_hidden_since,
                 voyage_code: None,
                 currency: None,
                 deck_name: None,
