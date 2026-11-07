@@ -342,6 +342,9 @@ pub struct BookingDto {
     /// The real cabin a "GTY" booking is currently assigned to, recovered from
     /// purchased-order records. Present only for GTY bookings we could resolve.
     pub assigned_stateroom: Option<String>,
+    /// The day Royal started hiding that room; `assigned_stateroom` is then the
+    /// last one we saw.
+    pub assigned_hidden_since: Option<chrono::NaiveDate>,
     /// Deck derived from the effective (assigned or displayed) cabin, when known.
     pub deck: Option<i32>,
     /// Named deck for lines that name them (Princess: "Dolphin"); `deck` stays
@@ -439,6 +442,7 @@ pub async fn list_bookings(
             package_code: b.package_code,
             stateroom: b.stateroom,
             assigned_stateroom: b.assigned_stateroom,
+            assigned_hidden_since: b.assigned_hidden_since,
             deck,
             deck_name: b.deck_name,
             cabin_category: b.cabin_category,

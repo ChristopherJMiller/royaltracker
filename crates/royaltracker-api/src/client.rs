@@ -410,7 +410,8 @@ impl CruiseClient {
     /// reservation's *own* passengers (`own_passenger_ids`), because group/shared
     /// orders (e.g. a show booked for several cabins) list guests across multiple
     /// rooms. Stops at the first order that yields a single unambiguous room.
-    /// Returns `None` when nothing leaks it (e.g. no add-ons purchased yet).
+    /// Returns [`AssignedRoom::Hidden`] when Royal masks it, [`AssignedRoom::Unknown`] when
+    /// nothing shows it (e.g. no add-ons purchased yet).
     #[instrument(skip(self, own_passenger_ids))]
     pub async fn discover_assigned_stateroom(
         &self,
@@ -420,7 +421,7 @@ impl CruiseClient {
         reservation_id: &str,
         query_passenger_id: &str,
         own_passenger_ids: &HashSet<String>,
-    ) -> Result<Option<String>, ApiError> {
+    ) -> Result<AssignedRoom, ApiError> {
         let hist = self
             .fetch_order_history(
                 brand,
@@ -447,7 +448,7 @@ impl CruiseClient {
         // Tally rooms seen for our own passengers across order details. The cheap,
         // common path exits after the first detail: a single cabin's own guests
         // can only carry one room.
-        let mut tally: HashMap<String, u32> = HashMap::new();
+        let mut tally = RoomTally::default();
         for code in order_codes {
             let detail = match self
                 .fetch_order_detail(
@@ -466,17 +467,14 @@ impl CruiseClient {
                     continue;
                 }
             };
-            collect_own_rooms(&detail, own_passenger_ids, &mut tally);
-            if tally.len() == 1 {
-                return Ok(tally.into_keys().next());
+            tally.add(&detail, own_passenger_ids);
+            if tally.rooms.len() == 1 {
+                break;
             }
         }
 
-        // Ambiguous (details disagreed) or empty: prefer the most-seen room.
-        Ok(tally
-            .into_iter()
-            .max_by_key(|(_, n)| *n)
-            .map(|(room, _)| room))
+        // Ambiguous (details disagreed): the most-seen room wins.
+        Ok(tally.into_room())
     }
 
     /// Resolve the cruisedeckplans deck-plan image URL for a ship + deck.
@@ -548,41 +546,70 @@ fn json_id(v: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// Add every real cabin found on an order-detail's guests that belong to our own
-/// reservation to `tally`. Ignores placeholder rooms ("GTY"/"NONE"/blank) and
-/// masked ones: since Nov 2026 Royal sends unassigned guarantee cabins as "*****".
-fn collect_own_rooms(
-    detail: &serde_json::Value,
-    own: &HashSet<String>,
-    tally: &mut HashMap<String, u32>,
-) {
-    let Some(items) = detail
-        .pointer("/payload/orderHistoryDetailItems")
-        .and_then(|v| v.as_array())
-    else {
-        return;
-    };
-    for item in items {
-        let Some(guests) = item.get("guests").and_then(|v| v.as_array()) else {
-            continue;
+/// What order history says about a guarantee cabin's real room.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssignedRoom {
+    /// The room our own guests are booked into.
+    Room(String),
+    /// Royal masks the room (since Nov 2026 it sends "*****").
+    Hidden,
+    /// No room on our guests' orders (nothing bought yet, or only "GTY").
+    Unknown,
+}
+
+/// Rooms seen on our own guests across order details.
+#[derive(Debug, Default)]
+struct RoomTally {
+    rooms: HashMap<String, u32>,
+    masked: bool,
+}
+
+impl RoomTally {
+    /// Count the room on each of an order detail's guests that belong to our own
+    /// reservation. Placeholder rooms ("GTY"/"NONE"/blank) count as nothing; a
+    /// room that isn't letters and digits is a masked one.
+    fn add(&mut self, detail: &serde_json::Value, own: &HashSet<String>) {
+        let Some(items) = detail
+            .pointer("/payload/orderHistoryDetailItems")
+            .and_then(|v| v.as_array())
+        else {
+            return;
         };
-        for g in guests {
-            let Some(id) = g.get("id").and_then(json_id) else {
+        for item in items {
+            let Some(guests) = item.get("guests").and_then(|v| v.as_array()) else {
                 continue;
             };
-            if !own.contains(&id) {
-                continue;
-            }
-            if let Some(room) = g.get("stateroomNumber").and_then(|v| v.as_str()) {
-                let room = room.trim();
-                if !room.is_empty()
-                    && room.chars().all(|c| c.is_ascii_alphanumeric())
-                    && !room.eq_ignore_ascii_case("GTY")
-                    && !room.eq_ignore_ascii_case("NONE")
-                {
-                    *tally.entry(room.to_string()).or_insert(0) += 1;
+            for g in guests {
+                let Some(id) = g.get("id").and_then(json_id) else {
+                    continue;
+                };
+                if !own.contains(&id) {
+                    continue;
+                }
+                if let Some(room) = g.get("stateroomNumber").and_then(|v| v.as_str()) {
+                    let room = room.trim();
+                    if room.is_empty()
+                        || room.eq_ignore_ascii_case("GTY")
+                        || room.eq_ignore_ascii_case("NONE")
+                    {
+                        continue;
+                    }
+                    if room.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        *self.rooms.entry(room.to_string()).or_insert(0) += 1;
+                    } else {
+                        self.masked = true;
+                    }
                 }
             }
+        }
+    }
+
+    /// The most-seen real room; else hidden if Royal masked it.
+    fn into_room(self) -> AssignedRoom {
+        match self.rooms.into_iter().max_by_key(|(_, n)| *n) {
+            Some((room, _)) => AssignedRoom::Room(room),
+            None if self.masked => AssignedRoom::Hidden,
+            None => AssignedRoom::Unknown,
         }
     }
 }
@@ -651,7 +678,7 @@ impl BookingSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_own_rooms, extract_deckpic_src};
+    use super::{extract_deckpic_src, AssignedRoom, RoomTally};
     use std::collections::{HashMap, HashSet};
 
     fn detail_with_rooms(rooms: &[&str]) -> serde_json::Value {
@@ -663,27 +690,36 @@ mod tests {
         serde_json::json!({ "payload": { "orderHistoryDetailItems": [ { "guests": guests } ] } })
     }
 
-    fn rooms_seen(rooms: &[&str]) -> HashMap<String, u32> {
+    fn scan(rooms: &[&str]) -> RoomTally {
         let own: HashSet<String> = (0..rooms.len()).map(|i| format!("p{i}")).collect();
-        let mut tally = HashMap::new();
-        collect_own_rooms(&detail_with_rooms(rooms), &own, &mut tally);
+        let mut tally = RoomTally::default();
+        tally.add(&detail_with_rooms(rooms), &own);
         tally
     }
 
     #[test]
     fn real_rooms_are_counted() {
-        assert_eq!(rooms_seen(&["9434", "9434"]), HashMap::from([("9434".to_string(), 2)]));
+        assert_eq!(scan(&["9434", "9434"]).rooms, HashMap::from([("9434".to_string(), 2)]));
+        assert_eq!(scan(&["9434"]).into_room(), AssignedRoom::Room("9434".into()));
     }
 
     #[test]
-    fn placeholder_rooms_are_ignored() {
-        assert!(rooms_seen(&["GTY", "NONE", " "]).is_empty());
+    fn placeholder_rooms_are_unknown() {
+        assert_eq!(scan(&["GTY", "NONE", " "]).into_room(), AssignedRoom::Unknown);
+        assert_eq!(scan(&[]).into_room(), AssignedRoom::Unknown);
     }
 
     #[test]
-    fn masked_rooms_are_ignored() {
+    fn masked_rooms_are_hidden() {
         // Royal began sending guarantee cabins masked in order history (Nov 2026).
-        assert!(rooms_seen(&["*****", "93**4"]).is_empty());
+        let t = scan(&["*****", "93**4"]);
+        assert!(t.rooms.is_empty());
+        assert_eq!(t.into_room(), AssignedRoom::Hidden);
+    }
+
+    #[test]
+    fn a_real_room_beats_a_masked_one() {
+        assert_eq!(scan(&["*****", "9434"]).into_room(), AssignedRoom::Room("9434".into()));
     }
 
     #[test]

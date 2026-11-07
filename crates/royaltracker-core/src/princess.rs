@@ -27,6 +27,7 @@ pub fn booking_from_context(ctx: &PrincessBookingContext, account_id: i64) -> Bo
         package_code: None,
         stateroom: ctx.cabin.as_ref().map(|c| c.number.clone()),
         assigned_stateroom: None,
+        assigned_hidden_since: None,
         voyage_code: Some(ctx.voyage_code.clone()),
         currency: Some(ctx.currency.clone()),
         deck_name: ctx.cabin.as_ref().and_then(|c| c.deck_name.clone()),

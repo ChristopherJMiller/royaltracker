@@ -37,6 +37,8 @@ const deckOf = (cabin) => {
 const fmtSailDate = (iso) =>
   new Date(iso + "T12:00:00Z").toLocaleDateString(undefined,
     { year: "numeric", month: "long", day: "numeric" });
+const fmtShortDate = (iso) =>
+  new Date(iso + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric" });
 const daysUntil = (iso) => {
   const days = Math.round((new Date(iso + "T12:00:00Z").getTime() - Date.now()) / 86400000);
   if (days < 0) return `${-days} days ago`;
@@ -270,6 +272,8 @@ function AccountsView({ lines, onBack, onChanged }) {
 function Stateroom({ booking, detailed }) {
   const displayed = booking.stateroom;             // "GTY" | "12169" | null
   const hidden = booking.assigned_stateroom;       // "10601" | null
+  // Set once Royal started masking the room: `hidden` is then the last one we saw.
+  const hiddenSince = booking.assigned_hidden_since; // "2026-11-04" | null
   if (!displayed && !hidden) return null;
   const isGty = displayed === "GTY" || (!displayed && !!hidden);
   const room = hidden || (displayed && displayed !== "GTY" ? displayed : null);
@@ -279,15 +283,16 @@ function Stateroom({ booking, detailed }) {
   const deckTag = deckLabel ? html`<span class="text-tg-hint"> · ${deckLabel}</span>` : "";
 
   if (isGty && hidden) {
+    const note = hiddenSince
+      ? (detailed ? `· last room we saw (Royal hid it ${fmtShortDate(hiddenSince)})` : "· last seen")
+      : (detailed ? "· assigned cabin (Royal still shows GTY)" : "· assigned");
     return html`
       <span class="inline-flex items-center gap-1 flex-wrap">
         <span>🛏</span>
         <span class="line-through opacity-50">GTY</span>
         <span aria-hidden="true">→</span>
-        <span class="font-semibold">${hidden}</span>${deckTag}
-        <span class="text-tg-hint">${detailed
-          ? "· assigned cabin (Royal still shows GTY)"
-          : "· assigned"}</span>
+        <span class="font-semibold">${hidden}${hiddenSince ? "?" : ""}</span>${deckTag}
+        <span class="text-tg-hint">${note}</span>
       </span>`;
   }
   if (isGty) {

@@ -108,6 +108,7 @@ async fn booking_upsert_keeps_cabin_details_on_a_blank_refresh(url: &str) {
         package_code: None,
         stateroom: Some("D123".into()),
         assigned_stateroom: None,
+        assigned_hidden_since: None,
         voyage_code: Some("X637".into()),
         currency: Some("USD".into()),
         deck_name: Some("Dolphin".into()),

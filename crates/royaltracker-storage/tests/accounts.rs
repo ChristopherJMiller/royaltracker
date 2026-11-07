@@ -45,6 +45,7 @@ fn booking(id: &str, brand: Brand, voyage: Option<&str>, currency: Option<&str>)
         package_code: None,
         stateroom: None,
         assigned_stateroom: None,
+        assigned_hidden_since: None,
         voyage_code: voyage.map(str::to_string),
         currency: currency.map(str::to_string),
         deck_name: None,
