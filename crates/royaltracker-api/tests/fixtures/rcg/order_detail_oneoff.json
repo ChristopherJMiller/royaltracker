@@ -1,0 +1,317 @@
+{
+  "error": null,
+  "payload": {
+    "itemCount": null,
+    "orderCode": "ID-7",
+    "orderDate": "2026-11-06",
+    "orderHistoryDetailItems": [
+      {
+        "actualAmountPaid": null,
+        "bookingCancellation": {
+          "allowed": true,
+          "reason": null
+        },
+        "bookingModification": {
+          "allowed": true,
+          "reason": null
+        },
+        "bundleTemplate": null,
+        "canAddGuest": true,
+        "canChangeOption": true,
+        "canModifyDateTime": true,
+        "cancellable": true,
+        "dueAmount": {
+          "currencyIso": "USD",
+          "formattedValue": "$0.00",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 0.0
+        },
+        "dueAtVenue": false,
+        "entryNumber": 0,
+        "guests": [
+          {
+            "age": "REDACTED",
+            "ageGroup": {
+              "code": "ADULT",
+              "groupName": null,
+              "maxAge": 0,
+              "minAge": 0,
+              "name": "Adult"
+            },
+            "bookingCancellation": {
+              "allowed": true,
+              "reason": null
+            },
+            "bookingModification": {
+              "allowed": true,
+              "reason": null
+            },
+            "dob": "REDACTED",
+            "firstName": "REDACTED",
+            "fulfillment": null,
+            "guestType": "ADULT",
+            "id": "ID-2",
+            "lastName": "REDACTED",
+            "middleName": null,
+            "orderCode": "ID-7",
+            "orderEntryNumber": 0,
+            "orderStatus": "BOOKED",
+            "owner": false,
+            "priceDetails": {
+              "actualAmountPaid": 0,
+              "basePrice": 154.0,
+              "bonus": -999.99,
+              "currency": "USD",
+              "discount": -999.99,
+              "dueAtVenueSubtotal": 0,
+              "dueAtVenueTotalGratuity": 0,
+              "dueAtVenueTotalTax": 0,
+              "dueNowSubtotal": 0,
+              "dueNowTotalGratuity": 0,
+              "dueNowTotalTax": 0,
+              "gratuity": 0.0,
+              "onboardCredit": -999.99,
+              "quantity": 1,
+              "refund": 0,
+              "subtotal": 76.99,
+              "tax": 0.0,
+              "total": 76.99
+            },
+            "promoDescription": {
+              "code": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50",
+              "description": "PRE-CRUISE SAVINGS",
+              "discountedValue": null,
+              "displayName": "(50% OFF) PRE-CRUISE SAVINGS",
+              "endDate": "2026-12-11T04:59:00+0000",
+              "promotionType": "PERCENT_OFF",
+              "promotionValue": 50.0,
+              "startDate": null,
+              "title": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50"
+            },
+            "reservationId": "ID-3",
+            "stateroomNumber": "REDACTED"
+          },
+          {
+            "age": "REDACTED",
+            "ageGroup": {
+              "code": "ADULT",
+              "groupName": null,
+              "maxAge": 0,
+              "minAge": 0,
+              "name": "Adult"
+            },
+            "bookingCancellation": {
+              "allowed": true,
+              "reason": null
+            },
+            "bookingModification": {
+              "allowed": true,
+              "reason": null
+            },
+            "dob": "REDACTED",
+            "firstName": "REDACTED",
+            "fulfillment": null,
+            "guestType": "ADULT",
+            "id": "ID-4",
+            "lastName": "REDACTED",
+            "middleName": null,
+            "orderCode": "ID-7",
+            "orderEntryNumber": 1,
+            "orderStatus": "BOOKED",
+            "owner": false,
+            "priceDetails": {
+              "actualAmountPaid": 0,
+              "basePrice": 154.0,
+              "bonus": -999.99,
+              "currency": "USD",
+              "discount": -999.99,
+              "dueAtVenueSubtotal": 0,
+              "dueAtVenueTotalGratuity": 0,
+              "dueAtVenueTotalTax": 0,
+              "dueNowSubtotal": 0,
+              "dueNowTotalGratuity": 0,
+              "dueNowTotalTax": 0,
+              "gratuity": 0.0,
+              "onboardCredit": -999.99,
+              "quantity": 1,
+              "refund": 0,
+              "subtotal": 76.99,
+              "tax": 0.0,
+              "total": 76.99
+            },
+            "promoDescription": {
+              "code": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50",
+              "description": "PRE-CRUISE SAVINGS",
+              "discountedValue": null,
+              "displayName": "(50% OFF) PRE-CRUISE SAVINGS",
+              "endDate": "2026-12-11T04:59:00+0000",
+              "promotionType": "PERCENT_OFF",
+              "promotionValue": 50.0,
+              "startDate": null,
+              "title": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50"
+            },
+            "reservationId": "ID-3",
+            "stateroomNumber": "REDACTED"
+          }
+        ],
+        "id": "Y6Y2-XX20990101-A",
+        "isTicketPrinted": null,
+        "modifiable": true,
+        "offering": {
+          "active": null,
+          "dateTime": "2099-01-02T08:05:00",
+          "dayOfCruise": 2,
+          "endDateTime": null,
+          "fulfillmentLocation": "PERFECT DAY COCOCAY, BAHAMAS",
+          "fulfillmentPortCode": "PCC",
+          "id": "Y6Y2-XX20990101-A",
+          "meetingLocation": null,
+          "meetingTime": null,
+          "portCode": "PCC",
+          "portLocation": "PERFECT DAY COCOCAY, BAHAMAS",
+          "pricing": null,
+          "stock": null
+        },
+        "orderCode": "ID-7",
+        "priceDetails": {
+          "actualAmountPaid": 0,
+          "basePrice": 154.0,
+          "bonus": -999.99,
+          "currency": "USD",
+          "discount": -999.99,
+          "dueAtVenueSubtotal": 0,
+          "dueAtVenueTotalGratuity": 0,
+          "dueAtVenueTotalTax": 0,
+          "dueNowSubtotal": 0,
+          "dueNowTotalGratuity": 0,
+          "dueNowTotalTax": 0,
+          "gratuity": 0.0,
+          "onboardCredit": -999.99,
+          "quantity": 1,
+          "refund": 0,
+          "subtotal": 153.98,
+          "tax": 0.0,
+          "total": 153.98,
+          "totalAfterRefund": 153.98
+        },
+        "productSummary": {
+          "accessible": false,
+          "additionalInformation": null,
+          "alaCarte": false,
+          "atYourLeisure": true,
+          "baseId": "SX-HUB-PCC-354611",
+          "baseOptions": [
+            {
+              "selected": {
+                "code": "Y6Y2",
+                "name": null,
+                "variantOptionQualifiers": [
+                  {
+                    "name": "vvc_standard",
+                    "order": null,
+                    "qualifier": null,
+                    "value": "Standard",
+                    "variantCategoryDescription": null,
+                    "variantCategoryName": null
+                  }
+                ]
+              },
+              "variantType": "TimeBasedVariant"
+            }
+          ],
+          "cancellationEnabled": false,
+          "complimentary": false,
+          "consumerInterests": [],
+          "dayPorts": null,
+          "defaultVariantId": "Y6Y2",
+          "defaultVariantTitle": null,
+          "diningType": null,
+          "dueAtVenue": false,
+          "durationValues": null,
+          "favorited": false,
+          "id": "Y6Y2",
+          "media": null,
+          "merchandisingCategory": null,
+          "mostPopular": false,
+          "productBookingStatus": null,
+          "productTypeCategory": {
+            "categoryDisplayName": "ShoreX",
+            "id": "pt_shoreX"
+          },
+          "promoDescription": {
+            "code": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50",
+            "description": "PRE-CRUISE SAVINGS",
+            "discountedValue": null,
+            "displayName": "(50% OFF) PRE-CRUISE SAVINGS",
+            "endDate": "2026-12-11T04:59:00+0000",
+            "promotionType": "PERCENT_OFF",
+            "promotionValue": 50.0,
+            "startDate": null,
+            "title": "NOV_2026_1_FS_R_SX_TO_DAYPASS_110526_50"
+          },
+          "quantityType": null,
+          "recommended": false,
+          "references": null,
+          "salesUnit": "PER_SEAT",
+          "stock": {
+            "doesStockOwnershipMatchEnvironment": true,
+            "inStockStatus": "notSpecified",
+            "stockLevel": 653,
+            "stockLevelStatus": "inStock"
+          },
+          "title": "Hideaway Beach (Adults-Only) — Day Pass",
+          "unit": {
+            "code": "perSeat",
+            "name": "Per Seat"
+          },
+          "variantIdList": null
+        },
+        "proratedAmount": {
+          "currencyIso": "USD",
+          "formattedValue": "$76.99",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 76.99
+        },
+        "quantity": -1,
+        "reasonCodeData": null,
+        "status": "BOOKED",
+        "ticketPrintingStatus": null,
+        "totalPrice": {
+          "currencyIso": "USD",
+          "formattedValue": "$76.99",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 76.99
+        },
+        "upgrade": false,
+        "upgradeFromRef": null,
+        "upgradeToRef": null,
+        "upgraded": false
+      }
+    ],
+    "orderTotals": {
+      "basePrice": -999.99,
+      "bonus": -999.99,
+      "currency": "USD",
+      "discount": 154.02,
+      "dueAtVenueSubtotal": 0,
+      "dueAtVenueTotalGratuity": 0,
+      "dueAtVenueTotalTax": 0,
+      "dueNowSubtotal": 0,
+      "dueNowTotalGratuity": 0,
+      "dueNowTotalTax": 0,
+      "gratuity": 0.0,
+      "onboardCredit": 0.0,
+      "refund": -999.99,
+      "subtotal": 153.98,
+      "tax": 0.0,
+      "total": 153.98
+    },
+    "owner": true,
+    "status": "BOOKED"
+  },
+  "status": 200,
+  "warnings": null
+}

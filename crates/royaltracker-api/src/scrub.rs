@@ -5,7 +5,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Keys whose string values are personal details: replaced with "REDACTED".
+/// Keys whose values (strings or numbers) are personal details: replaced with
+/// "REDACTED".
 const PERSONAL_KEYS: &[&str] = &[
     "firstName",
     "lastName",
@@ -17,6 +18,8 @@ const PERSONAL_KEYS: &[&str] = &[
     "phone",
     "phoneNumber",
     "birthDate",
+    "dob",
+    "age",
     "dateOfBirth",
     "loyaltyNumber",
     "stateroomNumber",
@@ -45,7 +48,7 @@ fn walk(v: &mut Value, aliases: &mut HashMap<String, String>) {
     match v {
         Value::Object(map) => {
             for (k, val) in map.iter_mut() {
-                if PERSONAL_KEYS.contains(&k.as_str()) && val.is_string() {
+                if PERSONAL_KEYS.contains(&k.as_str()) && (val.is_string() || val.is_number()) {
                     *val = Value::String("REDACTED".into());
                 } else if let Some(s) = id_value(k, val) {
                     *val = Value::String(alias(&s, aliases));
@@ -99,13 +102,16 @@ mod tests {
         let mut v = json!({"payload": {"myOrders": [{"orderCode": "AB12CD", "orderDate": "2026-09-12"}],
           "orderHistoryDetailItems": [{"productSummary": {"id": "3222", "baseOptions": [{"selected": {"code": "3222"}}]},
             "guests": [{"id": "11112222", "firstName": "Pat", "lastName": "Doe", "reservationId": "1234567",
-                        "stateroomNumber": "1234", "guestType": "ADULT", "sailingId": "QQ20301225"},
+                        "stateroomNumber": "1234", "guestType": "ADULT", "sailingId": "QQ20301225",
+                        "dob": "1990-01-02", "age": 36},
                        {"id": "11112222", "firstName": "Pat"}]}]}});
         scrub_json(&mut v);
         let g = &v["payload"]["orderHistoryDetailItems"][0]["guests"];
         assert_eq!(g[0]["firstName"], "REDACTED");
         assert_eq!(g[0]["lastName"], "REDACTED");
         assert_eq!(g[0]["stateroomNumber"], "REDACTED");
+        assert_eq!(g[0]["dob"], "REDACTED");
+        assert_eq!(g[0]["age"], "REDACTED");
         assert_ne!(g[0]["id"], "11112222");
         assert_eq!(g[0]["id"], g[1]["id"]); // same real id → same alias
         assert_ne!(g[0]["reservationId"], "1234567");

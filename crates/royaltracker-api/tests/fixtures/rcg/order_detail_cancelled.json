@@ -1,0 +1,315 @@
+{
+  "error": null,
+  "payload": {
+    "itemCount": null,
+    "orderCode": "ID-1",
+    "orderDate": "2026-10-20",
+    "orderHistoryDetailItems": [
+      {
+        "actualAmountPaid": null,
+        "bookingCancellation": {
+          "allowed": false,
+          "reason": null
+        },
+        "bookingModification": {
+          "allowed": false,
+          "reason": null
+        },
+        "bundleTemplate": null,
+        "cancellable": false,
+        "dueAmount": {
+          "currencyIso": "USD",
+          "formattedValue": "$0.00",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 0.0
+        },
+        "dueAtVenue": false,
+        "entryNumber": 0,
+        "guests": [
+          {
+            "age": "REDACTED",
+            "ageGroup": {
+              "code": "ADULT",
+              "groupName": null,
+              "maxAge": 0,
+              "minAge": 0,
+              "name": "Adult"
+            },
+            "bookingCancellation": {
+              "allowed": false,
+              "reason": null
+            },
+            "bookingModification": {
+              "allowed": false,
+              "reason": null
+            },
+            "dob": "REDACTED",
+            "firstName": "REDACTED",
+            "fulfillment": null,
+            "guestType": "ADULT",
+            "id": "ID-2",
+            "lastName": "REDACTED",
+            "middleName": null,
+            "orderCode": "ID-1",
+            "orderEntryNumber": 0,
+            "orderStatus": "CANCELLED",
+            "owner": false,
+            "priceDetails": {
+              "actualAmountPaid": 0,
+              "basePrice": 805.0,
+              "bonus": -999.99,
+              "currency": "USD",
+              "discount": -999.99,
+              "dueAtVenueSubtotal": 0,
+              "dueAtVenueTotalGratuity": 0,
+              "dueAtVenueTotalTax": 0,
+              "dueNowSubtotal": 0,
+              "dueNowTotalGratuity": 0,
+              "dueNowTotalTax": 0,
+              "gratuity": 93.17,
+              "onboardCredit": -999.99,
+              "quantity": 0,
+              "refund": 611.1,
+              "subtotal": 517.93,
+              "tax": 0.0,
+              "total": 0
+            },
+            "promoDescription": {
+              "code": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER",
+              "description": "EXCLUSIVE CABIN OFFER",
+              "discountedValue": null,
+              "displayName": "(35% OFF) EXCLUSIVE CABIN OFFER",
+              "endDate": "2026-10-21T03:59:00+0000",
+              "promotionType": "PERCENT_OFF",
+              "promotionValue": 35.0,
+              "startDate": null,
+              "title": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER"
+            },
+            "reservationId": "ID-3",
+            "stateroomNumber": "REDACTED"
+          },
+          {
+            "age": "REDACTED",
+            "ageGroup": {
+              "code": "ADULT",
+              "groupName": null,
+              "maxAge": 0,
+              "minAge": 0,
+              "name": "Adult"
+            },
+            "bookingCancellation": {
+              "allowed": false,
+              "reason": null
+            },
+            "bookingModification": {
+              "allowed": false,
+              "reason": null
+            },
+            "dob": "REDACTED",
+            "firstName": "REDACTED",
+            "fulfillment": null,
+            "guestType": "ADULT",
+            "id": "ID-4",
+            "lastName": "REDACTED",
+            "middleName": null,
+            "orderCode": "ID-1",
+            "orderEntryNumber": 1,
+            "orderStatus": "CANCELLED",
+            "owner": false,
+            "priceDetails": {
+              "actualAmountPaid": 0,
+              "basePrice": 805.0,
+              "bonus": -999.99,
+              "currency": "USD",
+              "discount": -999.99,
+              "dueAtVenueSubtotal": 0,
+              "dueAtVenueTotalGratuity": 0,
+              "dueAtVenueTotalTax": 0,
+              "dueNowSubtotal": 0,
+              "dueNowTotalGratuity": 0,
+              "dueNowTotalTax": 0,
+              "gratuity": 93.17,
+              "onboardCredit": -999.99,
+              "quantity": 0,
+              "refund": 611.1,
+              "subtotal": 517.93,
+              "tax": 0.0,
+              "total": 0
+            },
+            "promoDescription": {
+              "code": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER",
+              "description": "EXCLUSIVE CABIN OFFER",
+              "discountedValue": null,
+              "displayName": "(35% OFF) EXCLUSIVE CABIN OFFER",
+              "endDate": "2026-10-21T03:59:00+0000",
+              "promotionType": "PERCENT_OFF",
+              "promotionValue": 35.0,
+              "startDate": null,
+              "title": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER"
+            },
+            "reservationId": "ID-3",
+            "stateroomNumber": "REDACTED"
+          }
+        ],
+        "id": "3222",
+        "isTicketPrinted": null,
+        "modifiable": false,
+        "offering": {
+          "active": null,
+          "dateTime": null,
+          "dayOfCruise": null,
+          "endDateTime": null,
+          "fulfillmentLocation": null,
+          "fulfillmentPortCode": null,
+          "id": "3222",
+          "meetingLocation": null,
+          "meetingTime": null,
+          "portCode": null,
+          "portLocation": null,
+          "pricing": null,
+          "stock": null
+        },
+        "orderCode": "ID-1",
+        "priceDetails": {
+          "actualAmountPaid": 0,
+          "basePrice": 805.0,
+          "bonus": -999.99,
+          "currency": "USD",
+          "discount": -999.99,
+          "dueAtVenueSubtotal": 0,
+          "dueAtVenueTotalGratuity": 0,
+          "dueAtVenueTotalTax": 0,
+          "dueNowSubtotal": 0,
+          "dueNowTotalGratuity": 0,
+          "dueNowTotalTax": 0,
+          "gratuity": 0,
+          "onboardCredit": -999.99,
+          "quantity": 0,
+          "refund": 1222.2,
+          "subtotal": 0,
+          "tax": 0,
+          "total": 1222.2,
+          "totalAfterRefund": 0
+        },
+        "productSummary": {
+          "accessible": false,
+          "additionalInformation": null,
+          "alaCarte": false,
+          "atYourLeisure": false,
+          "baseId": "B-3222",
+          "baseOptions": [
+            {
+              "selected": {
+                "code": "3222",
+                "name": null,
+                "variantOptionQualifiers": [
+                  {
+                    "name": "vvc_standard",
+                    "order": null,
+                    "qualifier": null,
+                    "value": "Standard",
+                    "variantCategoryDescription": null,
+                    "variantCategoryName": null
+                  }
+                ]
+              },
+              "variantType": "GoodsVariant"
+            }
+          ],
+          "cancellationEnabled": false,
+          "complimentary": false,
+          "consumerInterests": [],
+          "dayPorts": null,
+          "defaultVariantId": "3222",
+          "defaultVariantTitle": null,
+          "diningType": null,
+          "dueAtVenue": false,
+          "durationValues": null,
+          "favorited": false,
+          "id": "3222",
+          "media": null,
+          "merchandisingCategory": null,
+          "mostPopular": false,
+          "productBookingStatus": null,
+          "productTypeCategory": {
+            "categoryDisplayName": "Beverage",
+            "id": "pt_beverage"
+          },
+          "promoDescription": {
+            "code": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER",
+            "description": "EXCLUSIVE CABIN OFFER",
+            "discountedValue": null,
+            "displayName": "(35% OFF) EXCLUSIVE CABIN OFFER",
+            "endDate": "2026-10-21T03:59:00+0000",
+            "promotionType": "PERCENT_OFF",
+            "promotionValue": 35.0,
+            "startDate": null,
+            "title": "OCT_2026_2_FS_R_BV_DELUXE_101426_35_TO_CABINOFFER"
+          },
+          "quantityType": null,
+          "recommended": false,
+          "references": [
+            {
+              "source": "3222",
+              "target": "YNH3",
+              "type": "UPGRADE"
+            }
+          ],
+          "salesUnit": "PER_DAY",
+          "stock": null,
+          "title": "Deluxe Beverage Package",
+          "unit": {
+            "code": "perDay",
+            "name": "Per Day"
+          },
+          "variantIdList": null
+        },
+        "proratedAmount": {
+          "currencyIso": "USD",
+          "formattedValue": "$517.93",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 517.93
+        },
+        "quantity": -1,
+        "reasonCodeData": null,
+        "status": "CANCELLED",
+        "ticketPrintingStatus": null,
+        "totalPrice": {
+          "currencyIso": "USD",
+          "formattedValue": "$517.93",
+          "priceType": "BUY",
+          "tax": 0,
+          "value": 517.93
+        },
+        "upgrade": false,
+        "upgradeFromRef": null,
+        "upgradeToRef": null,
+        "upgraded": false
+      }
+    ],
+    "orderTotals": {
+      "basePrice": -999.99,
+      "bonus": -999.99,
+      "currency": "USD",
+      "discount": 574.14,
+      "dueAtVenueSubtotal": 0,
+      "dueAtVenueTotalGratuity": 0,
+      "dueAtVenueTotalTax": 0,
+      "dueNowSubtotal": 0,
+      "dueNowTotalGratuity": 0,
+      "dueNowTotalTax": 0,
+      "gratuity": 186.34,
+      "onboardCredit": 0.0,
+      "refund": -999.99,
+      "subtotal": 1035.86,
+      "tax": 0.0,
+      "total": 1222.2
+    },
+    "owner": true,
+    "status": "CANCELLED"
+  },
+  "status": 200,
+  "warnings": null
+}
